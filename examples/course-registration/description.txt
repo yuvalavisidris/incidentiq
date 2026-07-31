@@ -1,0 +1,2 @@
+During the 20:00 registration window, the course-registration site becomes very slow;
+some students see spinners for 30s or more. No deploy happened today.

@@ -1,0 +1,3 @@
+ALERT PagerDuty 14:12 "checkout 5xx rate 41% (threshold 2%)"
+ALERT Datadog  14:12 "orders-db connections at max_connections"
+Support: 6 tickets "payment failed but card was charged?" between 14:14-14:40

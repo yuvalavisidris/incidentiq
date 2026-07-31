@@ -1,0 +1,8 @@
+2024-12-01 19:58:11 INFO  reg-web requests/s=180 avg=210ms
+2024-12-01 20:00:04 INFO  reg-web requests/s=2400 (registration window opened)
+2024-12-01 20:00:22 WARN  reg-web avg latency=8200ms
+2024-12-01 20:00:30 WARN  reg-api cache MISS rate 96% on key course:capacity:*
+2024-12-01 20:00:31 INFO  reg-api redis GET course:capacity:CS101 -> nil (recompute from DB)
+2024-12-01 20:00:45 ERROR reg-api db query seats_remaining took 6100ms (full table scan on enrollments)
+2024-12-01 20:01:10 WARN  reg-db CPU 97%, slow query log 400+ entries
+2024-12-01 20:03:00 INFO  reg-web requests/s=2100 avg=9100ms

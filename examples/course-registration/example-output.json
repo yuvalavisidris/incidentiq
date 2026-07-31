@@ -1,0 +1,268 @@
+{
+  "_note": "Example output produced by IncidentIQ from the input files in this same folder (examples/course-registration). Model output is not deterministic; a fresh run may differ in wording and confidence values.",
+  "summary": {
+    "summary": "At 20:00 the course-registration window opened and request volume rose from roughly 180 to 2400 requests per second. Within 30 seconds average latency climbed from about 210ms to over 8 seconds. The registration API reported a 96% cache miss rate on course-capacity keys, forcing each request to recompute seat availability from the database, where a seats_remaining query performing a full table scan on enrollments took over 6 seconds. Database CPU reached 97% with more than 400 slow-query entries. No deployment occurred today.",
+    "facts": [
+      {
+        "statement": "Request volume increased from 180/s before the window to 2400/s at 20:00:04.",
+        "evidence": "19:58:11 requests/s=180 avg=210ms / 20:00:04 requests/s=2400 (registration window opened)"
+      },
+      {
+        "statement": "Average latency rose to 8200ms by 20:00:22 and 9100ms by 20:03.",
+        "evidence": "20:00:22 WARN reg-web avg latency=8200ms / 20:03:00 avg=9100ms"
+      },
+      {
+        "statement": "Cache miss rate on course:capacity:* keys reached 96%.",
+        "evidence": "20:00:30 WARN reg-api cache MISS rate 96% on key course:capacity:*"
+      },
+      {
+        "statement": "A seats_remaining query took 6100ms and performed a full table scan on enrollments.",
+        "evidence": "20:00:45 ERROR reg-api db query seats_remaining took 6100ms (full table scan on enrollments)"
+      },
+      {
+        "statement": "reg-db CPU reached 97% with over 400 slow-query log entries.",
+        "evidence": "20:01:10 WARN reg-db CPU 97%, slow query log 400+ entries"
+      },
+      {
+        "statement": "No deployment occurred in the last five days; course capacity is cached in Redis with a 30-second TTL.",
+        "evidence": "Deployment notes: No deploy in the last 5 days; capacity cached in Redis with 30s TTL, cache is cold at window open."
+      }
+    ],
+    "assumptions": [
+      {
+        "statement": "The enrollments table lacks an index supporting the seats_remaining query.",
+        "why": "The log reports a full table scan, which strongly implies a missing index, but no schema information appears in the input."
+      },
+      {
+        "statement": "The index-less admin query added six days ago is related to the current slow query.",
+        "why": "The deployment note mentions an index-less query on enrollments, but does not confirm it is the same query path used by seats_remaining."
+      },
+      {
+        "statement": "Redis itself was healthy and the misses were genuine cold-cache misses.",
+        "why": "A 96% miss rate is consistent with a cold cache, but a Redis outage or eviction would look similar and no Redis health data is provided."
+      },
+      {
+        "statement": "This degradation is specific to peak load rather than a permanent regression.",
+        "why": "Latency was normal at 19:58, but the input covers only a few minutes of history."
+      }
+    ]
+  },
+  "timeline": [
+    {
+      "time": "19:58:11",
+      "event": "Normal operation: 180 requests/s at 210ms average latency.",
+      "source": "reg-web INFO line",
+      "kind": "observed"
+    },
+    {
+      "time": "20:00:04",
+      "event": "Registration window opens; traffic jumps to 2400 requests/s.",
+      "source": "reg-web INFO line",
+      "kind": "observed"
+    },
+    {
+      "time": "~20:00:04",
+      "event": "Redis capacity cache is cold, since entries expire on a 30s TTL and no traffic pre-warmed them.",
+      "source": "inferred from deployment note on TTL and cold cache",
+      "kind": "inferred"
+    },
+    {
+      "time": "20:00:22",
+      "event": "Average latency reaches 8200ms.",
+      "source": "reg-web WARN line",
+      "kind": "observed"
+    },
+    {
+      "time": "20:00:30",
+      "event": "Cache miss rate on capacity keys measured at 96%.",
+      "source": "reg-api WARN line",
+      "kind": "observed"
+    },
+    {
+      "time": "20:00:31",
+      "event": "Capacity lookup for CS101 misses and falls back to recomputing from the database.",
+      "source": "reg-api redis GET -> nil",
+      "kind": "observed"
+    },
+    {
+      "time": "20:00:45",
+      "event": "seats_remaining query takes 6100ms via a full table scan on enrollments.",
+      "source": "reg-api ERROR line",
+      "kind": "observed"
+    },
+    {
+      "time": "20:01:10",
+      "event": "reg-db CPU at 97% with 400+ slow queries logged.",
+      "source": "reg-db WARN line",
+      "kind": "observed"
+    },
+    {
+      "time": "20:03:00",
+      "event": "Traffic still at 2100/s with latency at 9100ms; no recovery.",
+      "source": "reg-web INFO line",
+      "kind": "observed"
+    }
+  ],
+  "hypotheses": [
+    {
+      "title": "Cold cache at window open converted every request into an expensive unindexed database query",
+      "confidence": 78,
+      "supporting": [
+        "96% cache miss rate measured immediately after the window opened",
+        "Capacity cache uses a 30s TTL and was cold at open, per the deployment notes",
+        "Each miss recomputes seats_remaining, which is logged at 6100ms with a full table scan",
+        "Database CPU reached 97% with 400+ slow queries, consistent with mass fallback to the database"
+      ],
+      "contradicting": [
+        "No Redis health metrics are provided, so the misses could have another cause",
+        "The input does not confirm the miss rate stayed high after the first seconds"
+      ],
+      "test": "Pre-warm the capacity cache before the next window and compare miss rate, latency, and database CPU."
+    },
+    {
+      "title": "A missing index on enrollments makes the seats_remaining query unable to survive peak load",
+      "confidence": 66,
+      "supporting": [
+        "The query is explicitly logged as a full table scan taking 6100ms",
+        "An index-less query on enrollments was added six days ago per the deployment notes",
+        "Database CPU saturates rather than the application tier"
+      ],
+      "contradicting": [
+        "The system ran normally at 180 requests/s with the same schema, so the index alone does not explain the failure",
+        "No schema or EXPLAIN output is present in the input to confirm which index is missing"
+      ],
+      "test": "Run EXPLAIN on the seats_remaining query, add the appropriate index in staging, and re-run a load test at 2400 requests/s."
+    },
+    {
+      "title": "Raw traffic volume exceeds provisioned capacity regardless of caching",
+      "confidence": 41,
+      "supporting": [
+        "Traffic rose more than thirteenfold, from 180/s to 2400/s",
+        "Latency remained above 9 seconds at 20:03 with traffic still at 2100/s"
+      ],
+      "contradicting": [
+        "The specific bottleneck logged is a slow database query, not saturated application instances or a connection limit",
+        "A working cache would absorb most of this traffic without reaching the database at all"
+      ],
+      "test": "Replay the same traffic volume with a warm cache and an indexed query; if latency stays high, capacity is the real constraint."
+    },
+    {
+      "title": "Redis outage or eviction rather than a genuinely cold cache",
+      "confidence": 22,
+      "supporting": [
+        "A 96% miss rate is extreme even for a cold cache",
+        "One logged GET returned nil"
+      ],
+      "contradicting": [
+        "A 30s TTL with no pre-window traffic fully explains a cold cache without any failure",
+        "No Redis errors, connection failures, or memory warnings appear anywhere in the input"
+      ],
+      "test": "Check Redis memory usage, eviction counters, and error logs for the 19:55-20:05 window."
+    }
+  ],
+  "risks": [
+    {
+      "bias": "Availability bias",
+      "where": "With no deploy today, the investigation may default to 'it is just load' because traffic spikes are the familiar explanation for slowness at peak.",
+      "mitigation": "Follow the specific bottleneck named in the logs — a 6-second unindexed query — rather than the most familiar story."
+    },
+    {
+      "bias": "Post-hoc fallacy",
+      "where": "The index-less query added six days ago is tempting to name as the cause simply because it came before, even though the system ran normally for six days.",
+      "mitigation": "Explain why the change was harmless for six days; a latent factor exposed by load is not the same as a trigger."
+    },
+    {
+      "bias": "Confirmation bias",
+      "where": "The cold-cache story is elegant, so the equally plausible possibility of a Redis eviction or outage may never be checked.",
+      "mitigation": "Pull Redis health metrics explicitly, even though the cold-cache explanation already fits."
+    },
+    {
+      "bias": "Single-cause thinking",
+      "where": "Cold cache, missing index, and peak traffic are each insufficient alone; the incident requires all three together.",
+      "mitigation": "State the causal chain as a conjunction and test each link separately rather than searching for one root cause."
+    },
+    {
+      "bias": "Automation bias",
+      "where": "This analysis reads confidently, yet key elements such as the missing index are inferred from a single log phrase.",
+      "mitigation": "Confirm the schema with EXPLAIN before treating the missing index as established fact."
+    }
+  ],
+  "actions": [
+    {
+      "action": "Run EXPLAIN on the seats_remaining query and confirm which index is missing on enrollments.",
+      "link": "Tests H2; converts the central assumption into a measured fact",
+      "priority": "high"
+    },
+    {
+      "action": "Pre-warm the course-capacity cache a few minutes before the next registration window.",
+      "link": "Directly tests H1 and is the cheapest immediate mitigation",
+      "priority": "high"
+    },
+    {
+      "action": "Raise the capacity cache TTL well above 30 seconds, or refresh it in the background rather than on demand.",
+      "link": "Removes the repeated cold-start behaviour identified in H1",
+      "priority": "high"
+    },
+    {
+      "action": "Pull Redis memory, eviction, and error metrics for 19:55-20:05.",
+      "link": "Rules H4 in or out; currently unchecked",
+      "priority": "med"
+    },
+    {
+      "action": "Load-test at 2400 requests/s in staging with a warm cache and the new index before the next window.",
+      "link": "Distinguishes H1 and H2 from the pure-capacity explanation in H3",
+      "priority": "med"
+    }
+  ],
+  "questions": [
+    "Which index is actually missing, and is the admin query from six days ago on the same code path as seats_remaining?",
+    "Was Redis healthy throughout, or were keys being evicted under memory pressure?",
+    "What did the previous registration window look like — is this a regression or a recurring pattern?",
+    "How long did the degradation last, and did the system recover on its own once the cache warmed?",
+    "Were any registrations lost or duplicated while the system was timing out?"
+  ],
+  "devil": {
+    "counter": "The cold-cache explanation is assumed rather than measured, and a Redis failure would produce identical symptoms with a completely different fix.",
+    "points": [
+      "A 96% miss rate is higher than a cold cache alone would typically produce once the first few requests populate entries — after 30 seconds of 2400 requests/s, hit rates should have recovered, yet latency was still climbing at 20:03.",
+      "There is no Redis health data whatsoever in the evidence. Memory pressure and key eviction under load would look exactly like a cold cache from the application side.",
+      "The full table scan is reported in a single log line. Nobody has run EXPLAIN, and the connection to the admin query added six days ago is an association, not a demonstrated code path.",
+      "If load alone were sufficient to saturate the database, pre-warming the cache would help far less than the leading hypothesis predicts — and that outcome would not be visible until the next window."
+    ],
+    "blindspot": "Committing to cold cache plus missing index means never pulling Redis metrics. If keys were being evicted under memory pressure, adding an index and pre-warming would reduce the symptom while leaving the real fault in place until the next peak."
+  },
+  "grounding": {
+    "audit": [
+      {
+        "claim": "Request volume increased from 180/s to 2400/s at window open.",
+        "verdict": "supported",
+        "note": "Both figures appear verbatim in the reg-web log lines at 19:58:11 and 20:00:04."
+      },
+      {
+        "claim": "Cache miss rate on course:capacity:* reached 96%.",
+        "verdict": "supported",
+        "note": "Stated directly in the reg-api WARN line at 20:00:30."
+      },
+      {
+        "claim": "A seats_remaining query took 6100ms performing a full table scan on enrollments.",
+        "verdict": "supported",
+        "note": "Reported verbatim in the ERROR line at 20:00:45."
+      },
+      {
+        "claim": "The enrollments table lacks an index supporting this query.",
+        "verdict": "partly",
+        "note": "A full table scan strongly implies it, but no schema or EXPLAIN output exists in the input. This is an inference presented as a finding."
+      },
+      {
+        "claim": "The index-less admin query added six days ago is responsible for the slow path.",
+        "verdict": "unsupported",
+        "note": "The deployment note mentions such a query, but nothing links it to the seats_remaining code path. This is an association only."
+      },
+      {
+        "claim": "Redis was healthy and the misses were genuine cold-cache misses.",
+        "verdict": "unsupported",
+        "note": "No Redis health data appears anywhere in the input. An eviction or outage would produce the same observation."
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+2024-11-18 14:05:02 INFO  deploy checkout-svc image=checkout:2.4.1 replicas=6 OK
+2024-11-18 14:05:40 INFO  checkout-svc healthcheck /healthz 200 (all pods ready)
+2024-11-18 14:11:56 WARN  checkout-svc payment.finalize latency=1900ms (p95 baseline 240ms)
+2024-11-18 14:12:03 ERROR checkout-svc payment.finalize -> orders-db timeout after 2000ms
+2024-11-18 14:12:03 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)
+2024-11-18 14:12:09 ERROR orders-db too many connections (max_connections=100, active=100)
+2024-11-18 14:12:10 WARN  reporting-svc opened 74 idle connections to orders-db
+2024-11-18 14:13:20 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted)
+2024-11-18 14:15:00 INFO  autoscaler checkout-svc replicas 6 -> 10 (cpu 78%)
+2024-11-18 14:16:41 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted)

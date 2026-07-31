@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IncidentIQ — Reason under uncertainty</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  /* Situation-room chrome */
+  --bg:#0e1420; --bg-2:#121a28; --panel:#161f2f; --panel-2:#1c2739;
+  --line:#26344a; --line-soft:#1f2b3d;
+  --ink:#e8edf5; --ink-dim:#9fb0c6; --ink-faint:#6c7d95;
+  --paper:#f6f5f0; --paper-line:#e2ddd0; --paper-ink:#232a33; --paper-dim:#5d6673;
+  /* Epistemic scale — the signature. Certainty has a color. */
+  --obs:#2db9a6;   --obs-bg:#0f2b2a;   /* Observed / Fact */
+  --inf:#e0a63c;   --inf-bg:#2c2410;   /* Inferred */
+  --asm:#8b7be8;   --asm-bg:#211d38;   /* Assumption */
+  --hyp:#4c8dd8;   --hyp-bg:#12233a;   /* Hypothesis */
+  --risk:#e0666b;  --risk-bg:#2e1518;  /* Reasoning risk */
+  --radius:14px;
+  --sans:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --disp:"Space Grotesk",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 480px at 82% -8%, rgba(76,141,216,.10), transparent 60%),
+    radial-gradient(760px 420px at 8% 4%, rgba(45,185,166,.07), transparent 55%),
+    var(--bg);
+  color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;min-height:100vh;
+}
+a{color:var(--hyp)}
+::selection{background:rgba(76,141,216,.35)}
+button{font-family:inherit;cursor:pointer}
+h1,h2,h3,h4{font-family:var(--disp);font-weight:600;line-height:1.15;margin:0}
+.mono{font-family:var(--mono)}
+.hidden{display:none !important}
+
+/* ---------- Header ---------- */
+header{
+  position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  padding:14px 26px;border-bottom:1px solid var(--line);
+  background:rgba(12,18,28,.86);backdrop-filter:blur(10px);
+}
+.brand{display:flex;align-items:baseline;gap:12px}
+.brand .logo{
+  font-family:var(--disp);font-weight:700;font-size:21px;letter-spacing:-.02em;
+}
+.brand .logo b{color:var(--obs)}
+.brand .tag{font-size:12.5px;color:var(--ink-faint);letter-spacing:.02em}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto;align-items:center}
+.legend .li{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-dim);
+  text-transform:uppercase;letter-spacing:.08em;font-weight:500}
+.dot{width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 3px rgba(255,255,255,.03)}
+.d-obs{background:var(--obs)} .d-inf{background:var(--inf)} .d-asm{background:var(--asm)}
+.d-hyp{background:var(--hyp)} .d-risk{background:var(--risk)}
+.keybtn{
+  font-family:var(--mono);font-size:12px;color:var(--ink-dim);
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:7px 12px;display:flex;align-items:center;gap:7px;transition:.15s;
+}
+.keybtn:hover{border-color:var(--hyp);color:var(--ink)}
+.keybtn .kd{width:7px;height:7px;border-radius:50%;background:var(--inf)}
+.keybtn.ok .kd{background:var(--obs)}
+
+/* ---------- Layout ---------- */
+.wrap{display:grid;grid-template-columns:378px 1fr;gap:0;align-items:start}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+aside{
+  position:sticky;top:61px;align-self:start;
+  height:calc(100vh - 61px);overflow-y:auto;
+  border-right:1px solid var(--line);padding:20px 20px 40px;
+  background:linear-gradient(180deg,var(--bg-2),var(--bg));
+}
+@media(max-width:1000px){aside{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line)}}
+main{padding:26px 30px 90px;min-width:0;max-width:1080px}
+
+/* ---------- Left rail ---------- */
+.rail-h{font-family:var(--disp);font-size:11px;text-transform:uppercase;letter-spacing:.14em;
+  color:var(--ink-faint);margin:22px 0 9px;font-weight:600}
+.rail-h:first-child{margin-top:2px}
+.scenarios{display:flex;flex-direction:column;gap:7px}
+.scn{
+  text-align:left;background:var(--panel);border:1px solid var(--line-soft);
+  border-radius:11px;padding:10px 12px;color:var(--ink-dim);transition:.15s;display:block;width:100%;
+}
+.scn:hover{border-color:var(--line);color:var(--ink);transform:translateX(2px)}
+.scn.active{border-color:var(--hyp);background:var(--hyp-bg);color:var(--ink)}
+.scn .st{font-weight:600;font-size:13.5px;color:var(--ink);font-family:var(--disp)}
+.scn .sd{font-size:11.5px;color:var(--ink-faint);margin-top:2px}
+.field{margin-top:12px}
+.field label{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:5px;font-weight:500}
+.field label .req{color:var(--risk)}
+textarea,input[type=text],input[type=password]{
+  width:100%;background:#0c121d;border:1px solid var(--line);border-radius:10px;
+  color:var(--ink);font-family:var(--mono);font-size:12.5px;line-height:1.5;
+  padding:10px 12px;resize:vertical;
+}
+textarea:focus,input:focus{outline:none;border-color:var(--hyp);box-shadow:0 0 0 3px rgba(76,141,216,.15)}
+textarea::placeholder{color:var(--ink-faint)}
+.run{
+  margin-top:16px;width:100%;border:none;border-radius:12px;
+  background:linear-gradient(180deg,#3a86e6,#2f6fd0);color:#fff;
+  font-family:var(--disp);font-weight:600;font-size:15px;padding:13px;letter-spacing:.01em;
+  box-shadow:0 6px 18px rgba(47,111,208,.35);transition:.15s;
+}
+.run:hover{filter:brightness(1.07)}
+.run:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+.mini{margin-top:8px;display:flex;gap:8px}
+.mini button{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);
+  border-radius:9px;padding:8px;font-size:12px;transition:.15s}
+.mini button:hover{border-color:var(--hyp);color:var(--ink)}
+
+/* ---------- Empty / hero ---------- */
+.hero{border:1px solid var(--line);border-radius:var(--radius);
+  background:linear-gradient(160deg,var(--panel),var(--bg-2));padding:34px 32px}
+.hero .kick{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--obs);margin-bottom:14px}
+.hero h1{font-size:34px;letter-spacing:-.02em;font-weight:700;max-width:20ch}
+.hero h1 em{font-style:normal;color:var(--ink-faint)}
+.hero p{color:var(--ink-dim);max-width:62ch;margin:14px 0 0;font-size:15px}
+.pillars{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:26px}
+@media(max-width:720px){.pillars{grid-template-columns:1fr 1fr}}
+.pillar{border:1px solid var(--line-soft);border-radius:11px;padding:13px 13px 15px;background:rgba(255,255,255,.015)}
+.pillar .pl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.pillar h4{font-size:13.5px;margin-bottom:4px}
+.pillar p{font-size:12px;color:var(--ink-faint);margin:0;line-height:1.45}
+.pl-obs{color:var(--obs)}.pl-asm{color:var(--asm)}.pl-hyp{color:var(--hyp)}.pl-risk{color:var(--risk)}
+
+/* ---------- Progress stepper ---------- */
+.stepper{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.step{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-faint);
+  border:1px solid var(--line-soft);border-radius:20px;padding:6px 12px 6px 8px;background:var(--panel)}
+.step .num{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+  font-family:var(--mono);font-size:10px;background:var(--bg);border:1px solid var(--line);color:var(--ink-faint)}
+.step.run .num{border-color:var(--hyp);color:var(--hyp);animation:pulse 1s infinite}
+.step.done{color:var(--ink);border-color:var(--obs)}
+.step.done .num{background:var(--obs);border-color:var(--obs);color:#04201d}
+@keyframes pulse{50%{box-shadow:0 0 0 4px rgba(76,141,216,.18)}}
+
+/* ---------- Result cards ---------- */
+.card{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);
+  margin-bottom:18px;overflow:hidden}
+.card>.ch{display:flex;align-items:center;gap:11px;padding:15px 20px;border-bottom:1px solid var(--line-soft)}
+.card>.ch .idx{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+  border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.card>.ch h3{font-size:16.5px;letter-spacing:-.01em}
+.card>.ch .sub{font-size:12px;color:var(--ink-faint);margin-left:auto}
+.card>.cb{padding:18px 20px}
+
+/* summary */
+.summary{font-size:15.5px;line-height:1.62;color:var(--ink)}
+.summary.paper{background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:16px 18px;border:1px solid var(--paper-line)}
+
+/* ledger 4-col */
+.ledger{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:820px){.ledger{grid-template-columns:1fr 1fr}}
+.col{border:1px solid var(--line-soft);border-radius:11px;overflow:hidden;background:var(--bg-2)}
+.col .colh{padding:9px 12px;font-family:var(--disp);font-size:12px;font-weight:600;
+  letter-spacing:.04em;display:flex;align-items:center;gap:7px;border-bottom:1px solid var(--line-soft)}
+.col.obs .colh{color:var(--obs);background:var(--obs-bg)}
+.col.asm .colh{color:var(--asm);background:var(--asm-bg)}
+.col.hyp .colh{color:var(--hyp);background:var(--hyp-bg)}
+.col.act .colh{color:var(--inf);background:var(--inf-bg)}
+.col ul{list-style:none;margin:0;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.col li{font-size:12.5px;color:var(--ink-dim);line-height:1.45;padding-left:12px;position:relative}
+.col li::before{content:"";position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:var(--line)}
+.col li .ev{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:2px}
+.col.obs li::before{background:var(--obs)}
+.col.asm li::before{background:var(--asm)}
+.col.hyp li::before{background:var(--hyp)}
+.col.act li::before{background:var(--inf)}
+
+/* certainty chip */
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;
+  text-transform:uppercase;letter-spacing:.08em;padding:2px 7px;border-radius:6px;font-weight:500;white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%}
+.c-obs{color:var(--obs);background:var(--obs-bg)}.c-obs::before{background:var(--obs)}
+.c-inf{color:var(--inf);background:var(--inf-bg)}.c-inf::before{background:var(--inf)}
+.c-asm{color:var(--asm);background:var(--asm-bg)}.c-asm::before{background:var(--asm)}
+.c-hyp{color:var(--hyp);background:var(--hyp-bg)}.c-hyp::before{background:var(--hyp)}
+.c-risk{color:var(--risk);background:var(--risk-bg)}.c-risk::before{background:var(--risk)}
+
+/* timeline */
+.tl{position:relative;margin:2px 0 0;padding-left:22px}
+.tl::before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tev{position:relative;padding:0 0 16px 4px}
+.tev::before{content:"";position:absolute;left:-19px;top:4px;width:11px;height:11px;border-radius:50%;
+  background:var(--bg);border:2px solid var(--inf)}
+.tev.observed::before{border-color:var(--obs)}
+.tev .tt{font-family:var(--mono);font-size:11.5px;color:var(--ink);font-weight:500}
+.tev .te{font-size:13.5px;color:var(--ink-dim);margin:2px 0 3px}
+.tev .ts{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+.chartbox{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:16px}
+.chartbox h4{font-size:12px;color:var(--ink-dim);font-weight:500;margin-bottom:10px;
+  text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono)}
+.chartwrap{position:relative;height:210px}
+
+/* hypotheses */
+.hyp-item{border:1px solid var(--line-soft);border-radius:12px;margin-bottom:12px;overflow:hidden;background:var(--bg-2)}
+.hyp-item:last-child{margin-bottom:0}
+.hyp-head{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line-soft)}
+.hyp-head .rank{font-family:var(--disp);font-size:13px;font-weight:700;color:var(--ink-faint);width:20px}
+.hyp-head .htitle{font-weight:600;font-size:14.5px;font-family:var(--disp);flex:1}
+.conf{display:flex;align-items:center;gap:9px;min-width:150px}
+.conf .bar{flex:1;height:7px;border-radius:4px;background:var(--line);overflow:hidden}
+.conf .bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--hyp),var(--obs))}
+.conf .pct{font-family:var(--mono);font-size:12px;color:var(--ink);width:34px;text-align:right}
+.hyp-body{display:grid;grid-template-columns:1fr 1fr;gap:0}
+@media(max-width:640px){.hyp-body{grid-template-columns:1fr}}
+.hyp-body .ev-col{padding:12px 15px}
+.hyp-body .ev-col+.ev-col{border-left:1px solid var(--line-soft)}
+@media(max-width:640px){.hyp-body .ev-col+.ev-col{border-left:none;border-top:1px solid var(--line-soft)}}
+.ev-col .lab{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px}
+.lab.for{color:var(--obs)} .lab.against{color:var(--risk)}
+.ev-col ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink-dim);line-height:1.5}
+.ev-col li{margin-bottom:4px}
+.htest{padding:11px 15px;border-top:1px solid var(--line-soft);font-size:12.5px;color:var(--ink-dim);
+  display:flex;gap:9px;align-items:baseline}
+.htest b{color:var(--inf);font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;white-space:nowrap}
+
+/* risks */
+.risk-item{display:flex;gap:13px;padding:13px 0;border-bottom:1px solid var(--line-soft)}
+.risk-item:last-child{border-bottom:none;padding-bottom:0}
+.risk-item .rl{width:6px;border-radius:3px;background:var(--risk);flex:none}
+.risk-item h4{font-size:14px;color:var(--risk);margin-bottom:3px;font-family:var(--disp)}
+.risk-item .rw{font-size:13px;color:var(--ink-dim);margin-bottom:5px}
+.risk-item .rm{font-size:12.5px;color:var(--ink-faint)}
+.risk-item .rm b{color:var(--ink-dim);font-weight:600}
+
+/* actions / questions */
+.acts{display:flex;flex-direction:column;gap:9px}
+.act-item{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line-soft);
+  border-radius:10px;background:var(--bg-2)}
+.act-item .prio{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;flex:none;margin-top:1px}
+.prio.high{color:var(--risk);background:var(--risk-bg)}
+.prio.med{color:var(--inf);background:var(--inf-bg)}
+.prio.low{color:var(--ink-dim);background:var(--panel-2)}
+.act-item .atxt{font-size:13.5px;color:var(--ink)}
+.act-item .alink{display:block;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:3px}
+.qs{margin:14px 0 0;padding:14px 16px;border:1px dashed var(--line);border-radius:11px;background:rgba(224,166,60,.04)}
+.qs .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--inf);margin-bottom:8px}
+.qs ul{margin:0;padding-left:18px;font-size:13px;color:var(--ink-dim)}
+.qs li{margin-bottom:5px}
+
+/* grounding + devils advocate */
+.tool-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.tool-btn{border:1px solid var(--line);background:var(--panel);color:var(--ink-dim);border-radius:11px;
+  padding:11px 15px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;transition:.15s}
+.tool-btn:hover{border-color:var(--hyp);color:var(--ink);background:var(--panel-2)}
+.tool-btn:disabled{opacity:.5;cursor:not-allowed}
+.tool-btn .ti{font-size:16px}
+.audit-item{padding:11px 0;border-bottom:1px solid var(--line-soft)}
+.audit-item:last-child{border-bottom:none}
+.audit-item .claim{font-size:13.5px;color:var(--ink)}
+.audit-item .verdict{font-family:var(--mono);font-size:11px;margin-top:4px;display:flex;align-items:center;gap:7px}
+.audit-item .note{font-size:12px;color:var(--ink-faint);margin-top:3px}
+.dev-quote{border-left:3px solid var(--risk);padding:4px 0 4px 14px;margin:0 0 12px;color:var(--ink);font-size:14px}
+.dev-list{margin:0;padding-left:18px;color:var(--ink-dim);font-size:13.5px;line-height:1.55}
+.dev-list li{margin-bottom:6px}
+
+/* postmortem */
+.roles{display:flex;gap:6px;margin-left:auto}
+.role{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg-2);color:var(--ink-faint);transition:.15s}
+.role:hover{color:var(--ink)}
+.role.active{color:var(--ink);border-color:var(--hyp);background:var(--hyp-bg)}
+.pm{background:var(--paper);color:var(--paper-ink);border-radius:11px;padding:24px 28px;border:1px solid var(--paper-line);
+  font-family:var(--sans);line-height:1.6}
+.pm h1,.pm h2,.pm h3{font-family:var(--disp);color:var(--paper-ink);margin:18px 0 8px}
+.pm h1{font-size:22px;margin-top:0}.pm h2{font-size:16.5px}.pm h3{font-size:14px}
+.pm p{margin:0 0 11px;font-size:14px}
+.pm ul,.pm ol{margin:0 0 11px;padding-left:22px;font-size:14px}
+.pm li{margin-bottom:4px}
+.pm strong{color:#111}
+.pm code{font-family:var(--mono);background:#eceae1;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.pm hr{border:none;border-top:1px solid var(--paper-line);margin:16px 0}
+.pm .meta-row{font-family:var(--mono);font-size:11px;color:var(--paper-dim);display:flex;gap:16px;flex-wrap:wrap;
+  border-bottom:1px solid var(--paper-line);padding-bottom:10px;margin-bottom:14px}
+.export-row{display:flex;gap:9px;margin-top:14px}
+.export-row button{background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);border-radius:9px;
+  padding:9px 14px;font-size:12.5px;transition:.15s;display:flex;align-items:center;gap:7px}
+.export-row button:hover{border-color:var(--hyp);color:var(--ink)}
+
+/* disclaimer */
+.disc{margin-top:8px;border:1px solid var(--inf);border-radius:12px;background:var(--inf-bg);
+  padding:13px 16px;font-size:12.5px;color:#e9cf9a;display:flex;gap:10px;align-items:flex-start}
+.disc b{color:var(--inf)}
+
+/* skeleton / loader */
+.sk{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:20px;margin-bottom:18px}
+.sk .ln{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--line-soft),var(--line),var(--line-soft));
+  background-size:200% 100%;animation:sh 1.3s infinite;margin-bottom:10px}
+@keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(6,10,16,.72);z-index:60;display:grid;place-items:center;padding:20px}
+.modal{width:min(460px,100%);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 24px}
+.modal h3{font-size:17px;margin-bottom:6px}
+.modal p{font-size:13px;color:var(--ink-dim);margin:0 0 14px}
+.modal .row{display:flex;gap:9px;margin-top:14px}
+.modal .row button{flex:1;border-radius:10px;padding:11px;font-size:13.5px;font-weight:600;font-family:var(--disp);border:none}
+.modal .save{background:var(--hyp);color:#fff}
+.modal .cancel{background:var(--bg-2);border:1px solid var(--line);color:var(--ink-dim)}
+.modal .hint{font-size:11.5px;color:var(--ink-faint);margin-top:9px;line-height:1.5}
+
+.err{border:1px solid var(--risk);background:var(--risk-bg);color:#f0b3b6;border-radius:11px;
+  padding:13px 16px;font-size:13px;margin-bottom:16px}
+.err b{color:var(--risk)}
+.uploader{display:flex;align-items:center;gap:8px;margin-top:8px;padding:9px 12px;border:1px dashed var(--line);
+  border-radius:10px;color:var(--ink-faint);font-size:12px;cursor:pointer;transition:.15s}
+.uploader:hover{border-color:var(--hyp);color:var(--ink-dim);background:rgba(76,141,216,.05)}
+.upnote{font-size:11px;color:var(--obs);margin-top:6px;min-height:14px;font-family:var(--mono)}
+select{width:100%;background:#0c121d;border:1px solid var(--line);border-radius:10px;color:var(--ink);
+  font-family:var(--sans);font-size:13px;padding:10px 12px;appearance:none}
+select:focus{outline:none;border-color:var(--hyp)}
+.modal a{color:var(--hyp)}
+.prompt-note{border:1px solid var(--inf);background:var(--inf-bg);color:#e9cf9a !important;
+  border-radius:9px;padding:9px 12px;font-size:12.5px !important;margin-bottom:12px !important}
+.run.demo:hover{filter:brightness(1.07)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="logo">Incident<b>IQ</b></span>
+    <span class="tag">reason under uncertainty · separate fact from guess</span>
+  </div>
+  <div class="legend" aria-hidden="true">
+    <span class="li"><span class="dot d-obs"></span>Observed</span>
+    <span class="li"><span class="dot d-inf"></span>Inferred</span>
+    <span class="li"><span class="dot d-asm"></span>Assumed</span>
+    <span class="li"><span class="dot d-hyp"></span>Hypothesis</span>
+    <span class="li"><span class="dot d-risk"></span>Risk</span>
+  </div>
+  <button class="keybtn" id="keyBtn" title="API key & model settings">
+    <span class="kd"></span><span id="keyLabel">Demo mode — no key</span>
+  </button>
+</header>
+
+<div class="wrap">
+  <!-- LEFT RAIL -->
+  <aside>
+    <button class="run demo" id="demoBtn" style="margin-top:0;background:linear-gradient(180deg,#2fae9c,#1f8b7c);box-shadow:0 6px 18px rgba(31,139,124,.3)">See a saved run — no key needed</button>
+    <p style="font-size:11px;color:var(--ink-faint);margin:7px 0 0;line-height:1.5">
+      Loads a stored analysis of a sample incident so you can review the whole tool instantly.
+    </p>
+
+    <div class="rail-h">Sample incidents</div>
+    <div class="scenarios" id="scenarios"></div>
+
+    <div class="rail-h">Incident description <span style="color:var(--risk)">*</span></div>
+    <div class="field">
+      <textarea id="in-desc" rows="2" placeholder="One or two lines: what broke, who noticed, when."></textarea>
+    </div>
+
+    <div class="rail-h">Application logs / error traces</div>
+    <div class="field">
+      <textarea id="in-logs" rows="7" placeholder="Paste raw logs, stack traces, or monitoring output."></textarea>
+      <label class="uploader" for="fileInput">
+        <span>↥</span> Upload .txt / .log / .csv / .json / .md files
+        <input type="file" id="fileInput" multiple accept=".txt,.log,.csv,.json,.md,text/*" hidden />
+      </label>
+      <div id="upNote" class="upnote"></div>
+    </div>
+
+    <div class="rail-h">Recent deployment notes</div>
+    <div class="field">
+      <textarea id="in-deploy" rows="3" placeholder="Releases, config changes, migrations, feature flags."></textarea>
+    </div>
+
+    <div class="rail-h">Alerts / user reports</div>
+    <div class="field">
+      <textarea id="in-alerts" rows="3" placeholder="Monitoring alerts, support tickets, user complaints."></textarea>
+    </div>
+
+    <button class="run" id="runBtn">Analyze incident</button>
+    <div class="mini">
+      <button id="clearBtn">Clear inputs</button>
+    </div>
+    <p style="font-size:11px;color:var(--ink-faint);margin-top:14px;line-height:1.5">
+      A live analysis runs six staged prompts through Gemini, each grounded in the text above, and needs an API key. IncidentIQ never claims a verified root cause — it ranks hypotheses you must test.
+    </p>
+  </aside>
+
+  <!-- MAIN -->
+  <main id="main">
+    <!-- EMPTY STATE -->
+    <div id="empty">
+      <div class="hero">
+        <div class="kick">Incident response · root-cause analysis</div>
+        <h1>Turn noisy incident data into a defensible investigation, <em>not a confident guess.</em></h1>
+        <p>Paste logs, a deployment note, and a one-line description. IncidentIQ builds a timeline, ranks competing root-cause hypotheses with evidence for <em>and against</em> each, flags the reasoning biases creeping into the investigation, and drafts a postmortem — all while keeping facts, assumptions, and hypotheses visibly separate.</p>
+        <div class="pillars">
+          <div class="pillar"><div class="pl pl-obs">Facts</div><h4>Grounded only</h4><p>Every fact points back to a specific line of your input.</p></div>
+          <div class="pillar"><div class="pl pl-asm">Assumptions</div><h4>Named, not hidden</h4><p>Beliefs the analysis leans on but hasn't proven.</p></div>
+          <div class="pillar"><div class="pl pl-hyp">Hypotheses</div><h4>Ranked & testable</h4><p>Several explanations, each with a way to falsify it.</p></div>
+          <div class="pillar"><div class="pl pl-risk">Risks</div><h4>Bias watch</h4><p>Where anchoring, confirmation, or post-hoc crept in.</p></div>
+        </div>
+      </div>
+      <p style="text-align:center;color:var(--ink-faint);font-size:13px;margin-top:22px">
+        Pick a sample on the left, or paste your own → <b style="color:var(--ink-dim)">Analyze incident</b>
+      </p>
+    </div>
+
+    <!-- RESULTS -->
+    <div id="results" class="hidden"></div>
+  </main>
+</div>
+
+<!-- API KEY / MODEL MODAL -->
+<div class="modal-bg hidden" id="keyModal">
+  <div class="modal">
+    <h3>API key &amp; model</h3>
+    <p id="keyPrompt" class="prompt-note hidden">A live analysis needs a key. You can also close this and use the saved run instead.</p>
+    <p>IncidentIQ calls the Google Gemini API. Create a free key in <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> — no credit card required on the free tier.</p>
+    <div class="field"><label>Gemini API key</label>
+      <input type="password" id="keyInput" placeholder="AIza..." autocomplete="off" /></div>
+    <div class="hint">Held in this browser tab's memory only — never written to disk, never committed to Git. Reloading clears it. Do not paste real production logs into any external API; use the sanitized samples or redact first. On the free tier Google may use submitted prompts to improve their models.</div>
+    <div class="row">
+      <button class="cancel" id="keyCancel">Close</button>
+      <button class="save" id="keySave">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Pre-computed analyses ("saved runs").
+   Rebuilt from logged evidence generated with gemini-3.5-flash-lite.
+   Checkout source files:
+   - evidence/baseline_checkout_run_1/summary_20260731T123716162869Z.json
+   - evidence/baseline_checkout_run_1/timeline_20260731T123720982180Z.json
+   - evidence/baseline_checkout_run_1/hypotheses_20260731T123726502541Z.json
+   - evidence/baseline_checkout_run_1/risks_20260731T123731565425Z.json
+   - evidence/baseline_checkout_run_1/actions_20260731T123736350018Z.json
+   - evidence/baseline_checkout_run_1/postmortem_20260731T123743712827Z.json
+   - evidence/baseline_checkout_run_1/grounding_20260731T123749166268Z.json
+   - evidence/baseline_checkout_run_1/devil_20260731T123753686359Z.json
+   Registration source files:
+   - evidence/baseline_registration_run_1/summary_20260731T123923647587Z.json
+   - evidence/baseline_registration_run_1/timeline_20260731T123928371245Z.json
+   - evidence/baseline_registration_run_1/hypotheses_20260731T123934135712Z.json
+   - evidence/baseline_registration_run_1/risks_20260731T123939103949Z.json
+   - evidence/baseline_registration_run_1/actions_20260731T123943623257Z.json
+   - evidence/baseline_registration_run_1/postmortem_20260731T123950079003Z.json
+   - evidence/baseline_registration_run_1/grounding_20260731T123954859324Z.json
+   - evidence/baseline_registration_run_1/devil_20260731T123959756585Z.json
+   Lets reviewers see the full pipeline output without an API key.
+   ============================================================ */
+const DEMO = {
+  "checkout": {
+    "summary": {
+      "summary": "Following the deployment of checkout-svc v2.4.1 at 14:05, which increased the database connection pool per pod from 10 to 20, the orders-db reached its maximum connection limit of 100 by 14:12. This exhaustion was compounded by reporting-svc opening 74 idle connections to the database at 14:10, leading to checkout failures, 500 errors on the order-confirmation page, and PagerDuty alerts. Consequently, customers experienced failed payments and could not complete their orders.",
+      "facts": [
+        {
+          "statement": "Checkout-svc v2.4.1 was deployed at 14:05 with 6 replicas.",
+          "evidence": "2024-11-18 14:05:02 INFO deploy checkout-svc image=checkout:2.4.1 replicas=6 OK"
+        },
+        {
+          "statement": "Release v2.4.1 raised the DB connection pool per pod from 10 to 20.",
+          "evidence": "checkout-svc: raised DB connection pool per pod from 10 -> 20 to reduce p99 latency."
+        },
+        {
+          "statement": "At 14:12:03, checkout-svc encountered a database timeout and a 500 error due to the orders-db pool being exhausted with 20/20 connections in use.",
+          "evidence": "2024-11-18 14:12:03 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)"
+        },
+        {
+          "statement": "At 14:12:09, orders-db reached its maximum connections limit of 100 with 100 active connections.",
+          "evidence": "2024-11-18 14:12:09 ERROR orders-db too many connections (max_connections=100, active=100)"
+        },
+        {
+          "statement": "At 14:12:10, reporting-svc had opened 74 idle connections to orders-db.",
+          "evidence": "2024-11-18 14:12:10 WARN reporting-svc opened 74 idle connections to orders-db"
+        },
+        {
+          "statement": "Support received 6 tickets regarding failed payments where the card was charged between 14:14 and 14:40.",
+          "evidence": "Support: 6 tickets \"payment failed but card was charged?\" between 14:14-14:40"
+        }
+      ],
+      "assumptions": [
+        {
+          "statement": "The combination of the increased per-pod connection limit in checkout-svc and the idle connections opened by reporting-svc directly caused the orders-db connection pool exhaustion.",
+          "why": "The logs show both events occurring around the failure window, but the direct mathematical correlation leading to saturation is inferred rather than explicitly proven in a single trace."
+        },
+        {
+          "statement": "Customers whose cards were charged during the incident experienced timeouts after the payment gateway successfully processed the charge but before the order confirmation was finalized in the database.",
+          "why": "The logs show payment.finalize timing out against the orders-db, which explains why external charges might succeed while internal order creation fails."
+        }
+      ]
+    },
+    "timeline": [
+      {
+        "time": "09:30",
+        "event": "reporting-svc deployed a new hourly export job that connects directly to orders-db and runs at :00 of each hour",
+        "source": "DEPLOYMENT NOTES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:05:02",
+        "event": "checkout-svc v2.4.1 deployed with 6 replicas",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:05:40",
+        "event": "checkout-svc healthcheck /healthz returns 200 and all pods are ready",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:11:56",
+        "event": "checkout-svc logs payment.finalize latency of 1900ms",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:12:03",
+        "event": "checkout-svc logs payment.finalize timeout after 2000ms calling orders-db and POST /api/checkout 500 error due to orders-db pool exhaustion",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:12:00",
+        "event": "PagerDuty and Datadog alert about high checkout 5xx rate and orders-db connections reaching max_connections",
+        "source": "ALERTS / USER REPORTS",
+        "kind": "observed"
+      },
+      {
+        "time": "14:12:09",
+        "event": "orders-db reports too many connections with active=100",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:12:10",
+        "event": "reporting-svc opened 74 idle connections to orders-db",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "14:15:00",
+        "event": "autoscaler scales checkout-svc replicas from 6 to 10 due to cpu usage reaching 78%",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      }
+    ],
+    "hypotheses": [
+      {
+        "title": "Checkout-svc connection pool increase combined with reporting-svc hourly job exhausted database max_connections",
+        "confidence": 85,
+        "supporting": [
+          "checkout-svc: raised DB connection pool per pod from 10 -> 20 (deployed at 14:05, 6 replicas = 120 potential connections)",
+          "reporting-svc deployed a new hourly export job that runs at :00 of each hour and opened 74 idle connections to orders-db at 14:12:10",
+          "orders-db too many connections (max_connections=100, active=100) at 14:12:09"
+        ],
+        "contradicting": [
+          "reporting-svc connections were logged as opened at 14:12:10, whereas the database reached max connections at 14:12:09 (slight log timestamp skew or reporting-svc actually ran slightly earlier)"
+        ],
+        "test": "Check reporting-svc execution logs and database connection telemetry to see exact connection acquisition timestamps relative to the 14:00 and 14:12 marks."
+      },
+      {
+        "title": "Checkout-svc v2.4.1 deployment alone exhausted the database max_connections due to increased pool size per pod",
+        "confidence": 60,
+        "supporting": [
+          "checkout-svc raised DB connection pool per pod from 10 -> 20 during the 14:05 deploy",
+          "6 replicas multiplied by 20 max connections per pod equals 120 potential connections, exceeding the orders-db max_connections limit of 100",
+          "checkout-svc pods scaled out from 6 to 10 at 14:15, further increasing potential connection pressure"
+        ],
+        "contradicting": [
+          "The incident did not occur immediately at deploy time (14:05), but rather at 14:12, which aligns with the timing of reporting-svc activity"
+        ],
+        "test": "Calculate total active connection counts from checkout-svc pods at 14:12 independently of reporting-svc."
+      },
+      {
+        "title": "Reporting-svc hourly export job independently exhausted orders-db max_connections without contribution from checkout-svc changes",
+        "confidence": 30,
+        "supporting": [
+          "reporting-svc opened 74 idle connections to orders-db",
+          "orders-db reached max_connections=100"
+        ],
+        "contradicting": [
+          "reporting-svc job runs at :00 of each hour, but the incident and max connections occurred at 14:12 rather than 14:00"
+        ],
+        "test": "Inspect reporting-svc execution logs to determine why connections were opened or active at 14:12 instead of 14:00."
+      }
+    ],
+    "risks": [
+      {
+        "bias": "Anchoring",
+        "where": "Focusing exclusively on the checkout-svc v2.4.1 deploy at 14:05 because it immediately preceded the incident and had a direct configuration change to the database pool.",
+        "mitigation": "Investigate the reporting-svc job deployed at 09:30 with equal weight, evaluating its connection usage and timing against the database max_connections limit."
+      },
+      {
+        "bias": "Post-hoc ergo propter hoc (Fallacy)",
+        "where": "Assuming that because the checkout-svc deploy happened at 14:05 and errors occurred at 14:12, the deploy must be the root cause of the database exhaustion, ignoring other concurrent or prior system changes.",
+        "mitigation": "Correlate the exact connection count metrics and query logs of orders-db at 14:00 (when reporting-svc ran its hourly job) with the connection states at 14:12."
+      },
+      {
+        "bias": "Confirmation bias",
+        "where": "Gathering and emphasizing logs that support the top hypothesis ('Checkout-svc connection pool increase combined with reporting-svc hourly job exhausted database max_connections') while ignoring contradictory evidence.",
+        "mitigation": "Explicitly test alternative explanations, such as whether reporting-svc alone leaked connections or if baseline traffic increased at 14:12 independently of the deploy."
+      },
+      {
+        "bias": "Availability bias",
+        "where": "Overweighting the recent and prominent PagerDuty alert and the deployment notes about checkout-svc v2.4.1 simply because they are the most salient pieces of information in the incident description.",
+        "mitigation": "Rely strictly on the database logs showing active connections (orders-db active=100) and reporting-svc behavior (74 idle connections) rather than initial impressions."
+      }
+    ],
+    "actions": [
+      {
+        "action": "Check orders-db connection metrics and active queries around 14:00 to see if reporting-svc hourly job coincided with the incident onset.",
+        "link": "Reporting-svc hourly export job independently exhausted orders-db max_connections without contribution from checkout-svc changes.",
+        "priority": "high"
+      },
+      {
+        "action": "Calculate total potential connection capacity across all pods (6 pods * 20 connections = 120) and compare it against orders-db max_connections (100).",
+        "link": "Checkout-svc v2.4.1 deployment alone exhausted the database max_connections due to increased pool size per pod.",
+        "priority": "high"
+      },
+      {
+        "action": "Inspect reporting-svc connection behavior and query duration logs for the execution starting at 14:00.",
+        "link": "Checkout-svc connection pool increase combined with reporting-svc hourly job exhausted database max_connections.",
+        "priority": "med"
+      },
+      {
+        "action": "Review payment gateway transaction logs for the users who reported 'card was charged' during the 14:14-14:40 window.",
+        "link": "Support tickets regarding successful charges during 500 errors",
+        "priority": "high"
+      }
+    ],
+    "questions": [
+      "What was the exact active connection count and pool usage of orders-db prior to the reporting-svc job execution at 14:00?",
+      "Did the reporting-svc hourly job run and hold connections longer than usual during the 14:00 hour?",
+      "Were there any other services besides checkout-svc and reporting-svc consuming connections from orders-db at 14:12?",
+      "What is the exact query or transaction that timed out during checkout-svc payment.finalize?"
+    ],
+    "postmortem": "# Incident Postmortem: Checkout Service 500 Errors (2024-11-18)\n\n## Impact\n- **Duration:** 14:12 – 14:40 (approx. 28 minutes)\n- **User Impact:** Customers were unable to complete payments. The order-confirmation page returned HTTP 500 errors, and checkout-svc returned `orders-db pool exhausted` errors for `POST /api/checkout`. \n- **Metrics:** \n  - Checkout 5xx error rate spiked to 41% (threshold 2%).\n  - `orders-db` reached maximum connection capacity (`max_connections=100`, `active=100`).\n- **Support:** 6 customer support tickets reported \"payment failed but card was charged?\" between 14:14 and 14:40.\n\n## Timeline\n- **14:05** — Deploy of `checkout-svc` v2.4.1 initiated (replicas=6, raised DB connection pool per pod from 10 to 20).\n- **14:05:40** — `checkout-svc` healthcheck passes (`/healthz` 200, all pods ready).\n- **14:11:56** — `checkout-svc` logs `payment.finalize latency=1900ms` (p95 baseline 240ms).\n- **14:12:00** — `reporting-svc` hourly export job runs, opening 74 idle connections to `orders-db`.\n- **14:12:03** — `checkout-svc` logs `payment.finalize -> orders-db timeout after 2000ms` and `POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)`.\n- **14:12:09** — `orders-db` logs `too many connections` (`max_connections=100`, `active=100`).\n- **14:12:12** — Alerts fire: PagerDuty \"checkout 5xx rate 41%\" and Datadog \"orders-db connections at max_connections\". On-call paged.\n- **14:13:20** — `checkout-svc` logs continued `POST /api/checkout 500 (orders-db pool exhausted)`.\n- **14:14:00** — First customer support ticket received regarding charged cards and failed payments.\n- **14:15:00** — Autoscaler scales `checkout-svc` replicas from 6 to 10 due to CPU usage (78%), exacerbating the database connection exhaustion.\n- **14:16:41** — `checkout-svc` logs `POST /api/checkout 500 (orders-db pool exhausted)`.\n\n## Leading Hypothesis\nThe root cause is hypothesized to be database connection exhaustion on `orders-db` caused by concurrent resource consumption. Specifically, the deployment of `checkout-svc` v2.4.1 increased the per-pod connection pool size from 10 to 20 (across 6 pods, totaling a potential 120 connections). When combined with the hourly `reporting-svc` export job (which opened 74 idle connections at the top of the hour), total connection demand exceeded the `orders-db` maximum capacity of 100 connections. This starved `checkout-svc` of database connections, resulting in transaction timeouts and HTTP 500 errors. Subsequent autoscaling of `checkout-svc` to 10 replicas further worsened the connection exhaustion.\n\n## Contributing factors\n- **Increased per-pod pool limits:** `checkout-svc` v2.4.1 raised the DB connection pool per pod from 10 to 20, increasing the maximum potential load from 60 to 120 connections for `checkout-svc` alone.\n- **Concurrent scheduled load:** `reporting-svc` deployed an hourly export job earlier that day (at 09:30) that connects directly to `orders-db` at the top of the hour, consuming 74 connections.\n- **Fixed database limits:** `orders-db` was capped at `max_connections=100`, which was insufficient to handle the combined peak capacity of `checkout-svc` (120 connections at 6 pods, scaling to 200 at 10 pods) and `reporting-svc` (74 connections).\n- **Autoscaler behavior:** The CPU-based autoscaler scaled `checkout-svc` replicas from 6 to 10 during the incident, which increased the pool exhaustion rate rather than alleviating it.\n\n## What we still need to verify\n- Exact breakdown of connection states (active vs. idle) on `orders-db` at 14:12.\n- The state of transactions for the 6 customers who reported being charged despite failed orders.\n- Whether `reporting-svc` connection pooling and lifecycle are configured correctly to release connections promptly after the hourly export completes.\n\n## Follow-up actions\n- [ ] Audit and adjust `orders-db` `max_connections` limits relative to the sum of all downstream service connection pools.\n- [ ] Implement global database connection budgeting and coordination for services connecting to `orders-db`.\n- [ ] Review `reporting-svc` export job connection handling, timeout configurations, and schedule alignment.\n- [ ] Investigate and resolve the 6 customer support tickets regarding charges on failed payments.\n- [ ] Evaluate autoscaling metrics for `checkout-svc` to ensure scaling triggers account for downstream database limits rather than CPU alone.",
+    "devil": {
+      "counter": "The exact timing coincidence with the deploy is a classic correlation-vs-causation trap, and the database exhaustion could instead be driven by an unnoted traffic spike or an independent long-running query triggered at 14:12.",
+      "points": [
+        "Scaling checkout-svc replicas from 6 to 10 at 14:15 did not alleviate the connection exhaustion, which is unexpected if the pool size per pod was the primary root cause.",
+        "The reporting-svc log specifically shows it opened connections at 14:12:10 (after the incident started), meaning it might be reacting to or getting stuck behind the database lock rather than being the initiator.",
+        "No schema changes or query modifications were deployed in v2.4.1, making it technically difficult for a simple pool size increase to suddenly saturate max_connections without a concurrent volume or query-duration anomaly."
+      ],
+      "blindspot": "Ignoring the possibility of an external Distributed Denial of Service (DDoS) or an upstream payment gateway timeout that is causing threads in checkout-svc to hang, artificially holding database connections hostage longer than usual."
+    },
+    "grounding": {
+      "audit": [
+        {
+          "claim": "Checkout-svc v2.4.1 was deployed at 14:05 with 6 replicas.",
+          "verdict": "supported",
+          "note": "Supported by 'Deploy of the checkout service v2.4.1 at 14:05' and log '2024-11-18 14:05:02 INFO  deploy checkout-svc image=checkout:2.4.1 replicas=6 OK'."
+        },
+        {
+          "claim": "Release v2.4.1 raised the DB connection pool per pod from 10 to 20.",
+          "verdict": "supported",
+          "note": "Supported by deployment notes: 'checkout-svc: raised DB connection pool per pod from 10 -> 20 to reduce p99 latency.'"
+        },
+        {
+          "claim": "At 14:12:03, checkout-svc encountered a database timeout and a 500 error due to the orders-db pool being exhausted with 20/20 connections in use.",
+          "verdict": "supported",
+          "note": "Supported by logs: '2024-11-18 14:12:03 ERROR checkout-svc payment.finalize -> orders-db timeout after 2000ms' and '2024-11-18 14:12:03 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)'."
+        },
+        {
+          "claim": "At 14:12:09, orders-db reached its maximum connections limit of 100 with 100 active connections.",
+          "verdict": "supported",
+          "note": "Supported by log: '2024-11-18 14:12:09 ERROR orders-db too many connections (max_connections=100, active=100)'."
+        },
+        {
+          "claim": "At 14:12:10, reporting-svc had opened 74 idle connections to orders-db.",
+          "verdict": "supported",
+          "note": "Supported by log: '2024-11-18 14:12:10 WARN  reporting-svc opened 74 idle connections to orders-db'."
+        },
+        {
+          "claim": "Support received 6 tickets regarding failed payments where the card was charged between 14:14 and 14:40.",
+          "verdict": "supported",
+          "note": "Supported by user reports: 'Support: 6 tickets \"payment failed but card was charged?\" between 14:14-14:40'."
+        },
+        {
+          "claim": "Following the deployment of checkout-svc v2.4.1 at 14:05, which increased the database connection pool per pod from 10 to 20, the orders-db reached its maximum connection limit of 100 by 14:12. This exhaustion was compounded by reporting-svc opening 74 idle connections to the database at 14:10, leading to checkout failures, 500 errors on the order-confirmation page, and PagerDuty alerts. Consequently, customers experienced failed payments and could not complete their orders.",
+          "verdict": "partly",
+          "note": "The synthesis and root cause claims are derived across the input source text, but arithmetic and direct causal sequencing beyond what is explicitly stated in individual lines are partly supported at best."
+        }
+      ]
+    }
+  },
+  "registration": {
+    "summary": {
+      "summary": "During the 20:00 registration window opening, traffic surged to 2400 requests per second, causing average latency to spike up to 9100ms and database CPU to reach 97%. The reg-api experienced a 96% cache miss rate on course capacity keys because the cache was cold, triggering expensive fallback database queries with full table scans on the enrollments table. No deployments occurred today, but a report added an index-less query on enrollments six days prior.",
+      "facts": [
+        {
+          "statement": "Traffic increased from 180 requests/s before the registration window to 2400 requests/s when the registration window opened.",
+          "evidence": "2024-12-01 19:58:11 INFO reg-web requests/s=180 and 2024-12-01 20:00:04 INFO reg-web requests/s=2400 (registration window opened)"
+        },
+        {
+          "statement": "The cache had a 96% MISS rate on the key course:capacity:* at 20:00:30.",
+          "evidence": "2024-12-01 20:00:30 WARN reg-api cache MISS rate 96% on key course:capacity:*"
+        },
+        {
+          "statement": "A database query for seats_remaining took 6100ms due to a full table scan on enrollments.",
+          "evidence": "2024-12-01 20:00:45 ERROR reg-api db query seats_remaining took 6100ms (full table scan on enrollments)"
+        },
+        {
+          "statement": "Database CPU reached 97% with over 400 entries in the slow query log.",
+          "evidence": "2024-12-01 20:01:10 WARN reg-db CPU 97%, slow query log 400+ entries"
+        },
+        {
+          "statement": "No deployments occurred today, and no deploy happened in the last 5 days.",
+          "evidence": "INCIDENT DESCRIPTION: 'No deploy happened today.' and DEPLOYMENT NOTES: 'No deploy in the last 5 days.'"
+        },
+        {
+          "statement": "Course capacity is cached in Redis with a 30s TTL, and the cache is cold at window open.",
+          "evidence": "DEPLOYMENT NOTES: Caching: course capacity cached in Redis with a 30s TTL; the cache is cold at window open."
+        }
+      ],
+      "assumptions": [
+        {
+          "statement": "The high cache miss rate and cold cache state directly caused the surge of fallback database queries that overwhelmed the database.",
+          "why": "To connect the sequence of cache misses and slow DB queries to the overall database CPU spike and latency."
+        },
+        {
+          "statement": "The index-less query added 6 days ago for an admin dashboard contributed to the full table scans on the enrollments table during the high load.",
+          "why": "To link the recent code change regarding the index-less query to the observed full table scan performance degradation."
+        }
+      ]
+    },
+    "timeline": [
+      {
+        "time": "19:58:11",
+        "event": "reg-web requests/s=180 avg=210ms",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:00",
+        "event": "ALERT reg-web p95 latency > 5s",
+        "source": "ALERTS / USER REPORTS",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:04",
+        "event": "reg-web requests/s=2400 (registration window opened)",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:22",
+        "event": "reg-web avg latency=8200ms",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:30",
+        "event": "reg-api cache MISS rate 96% on key course:capacity:*",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:31",
+        "event": "reg-api redis GET course:capacity:CS101 -> nil (recompute from DB)",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:00:45",
+        "event": "reg-api db query seats_remaining took 6100ms (full table scan on enrollments)",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      },
+      {
+        "time": "20:01:00",
+        "event": "ALERT reg-db CPU > 90%",
+        "source": "ALERTS / USER REPORTS",
+        "kind": "observed"
+      },
+      {
+        "time": "20:01:10",
+        "event": "reg-db CPU 97%, slow query log 400+ entries",
+        "source": "LOGS / TRACES",
+        "kind": "observed"
+      }
+    ],
+    "hypotheses": [
+      {
+        "title": "Cold cache combined with unindexed database query causes database exhaustion during traffic spike",
+        "confidence": 95,
+        "supporting": [
+          "No deploy happened today",
+          "requests/s jumped from 180 to 2400 at 20:00:04",
+          "cache MISS rate 96% on key course:capacity:* at 20:00:30",
+          "redis GET course:capacity:CS101 -> nil (recompute from DB)",
+          "db query seats_remaining took 6100ms (full table scan on enrollments)",
+          "reg-db CPU 97%, slow query log 400+ entries",
+          "A report added 6 days ago an index-less query on enrollments",
+          "Caching course capacity in Redis has a 30s TTL and the cache is cold at window open"
+        ],
+        "contradicting": [
+          "none found in input"
+        ],
+        "test": "Check database execution plans and query logs during the 20:00 window to confirm full table scans on `enrollments` triggered by cache misses."
+      },
+      {
+        "title": "Traffic volume surge alone (13x increase) overwhelmed application and database capacity",
+        "confidence": 60,
+        "supporting": [
+          "requests/s jumped from 180 to 2400 at the registration window opening",
+          "avg latency increased to 8200ms and 9100ms",
+          "reg-web p95 latency > 5s alert"
+        ],
+        "contradicting": [
+          "The database specific slow query log (400+ entries) and full table scan logs point to an algorithmic/indexing failure rather than pure volumetric hardware limits alone."
+        ],
+        "test": "Simulate 2400 req/s against a pre-warmed cache to see if the database still experiences full table scans and high CPU."
+      },
+      {
+        "title": "Recent admin dashboard change 6 days ago introduced an index-less query that degraded database performance under concurrent load",
+        "confidence": 45,
+        "supporting": [
+          "6 days ago: a report added an index-less query on enrollments for an admin dashboard",
+          "db query seats_remaining took 6100ms (full table scan on enrollments)"
+        ],
+        "contradicting": [
+          "No deploy happened today and the admin dashboard query was added 6 days prior without immediate incident until the registration window opened.",
+          "The cache MISS rate and cold cache at window open specifically drive the recomputation storm."
+        ],
+        "test": "Inspect the query plan of the admin report query to verify if it actively competed for resources or if the full table scan was strictly driven by the `seats_remaining` cache miss recomputation."
+      }
+    ],
+    "risks": [
+      {
+        "bias": "Confirmation bias",
+        "where": "Investigators might exclusively focus on the 'top hypothesis under consideration' (cold cache and unindexed query) and ignore other potential bottlenecks in reg-web or reg-api.",
+        "mitigation": "Explicitly mandate a review of all logs from reg-web and reg-api before concluding the root cause."
+      },
+      {
+        "bias": "Post-hoc ergo propter hoc",
+        "where": "Assuming that because the report with the index-less query was added 6 days ago, it must be the primary trigger for today's specific failure mode, ignoring that the system may have operated fine under lower traffic.",
+        "mitigation": "Verify whether the index-less query executed prior to the 20:00 window open or if it was strictly triggered by the 2400 req/s traffic spike."
+      },
+      {
+        "bias": "Availability bias",
+        "where": "Focusing heavily on the prominent database CPU alert (97%) and slow query log entries because they are noisy and easily accessible in the logs, while potentially overlooking network or application-layer queuing issues.",
+        "mitigation": "Check metrics across the entire request lifecycle, including client-side wait times and application thread pool saturation."
+      },
+      {
+        "bias": "Base-rate neglect",
+        "where": "Failing to account for the extreme baseline traffic shift (from 180 req/s to 2400 req/s) when evaluating why the system failed, treating the traffic volume as a constant rather than the primary stress factor.",
+        "mitigation": "Model system capacity limits explicitly against the 2400 req/s load profile rather than solely blaming software defects."
+      }
+    ],
+    "actions": [
+      {
+        "action": "Check database query logs specifically for the index-less query on `enrollments` added 6 days ago during the peak window starting at 20:00.",
+        "link": "Recent admin dashboard change 6 days ago introduced an index-less query that degraded database performance under concurrent load.",
+        "priority": "high"
+      },
+      {
+        "action": "Analyze Redis cache population strategy to pre-warm `course:capacity:*` keys prior to the registration window opening, avoiding the 96% cache miss rate.",
+        "link": "Cold cache combined with unindexed database query causes database exhaustion during traffic spike.",
+        "priority": "high"
+      },
+      {
+        "action": "Examine connection pooling and rate-limiting configurations on `reg-api` and `reg-web` to handle the 13x traffic volume surge (from 180 req/s to 2400 req/s).",
+        "link": "Traffic volume surge alone (13x increase) overwhelmed application and database capacity.",
+        "priority": "med"
+      }
+    ],
+    "questions": [
+      "Did the admin report query actually execute concurrently with student registration requests, or was the slow query solely triggered by cache misses?",
+      "What is the maximum connection limit on the database (`reg-db`), and did it reach exhaustion alongside the 97% CPU utilization?",
+      "Why was the Redis cache key `course:capacity:*` allowed to be cold or expire right at the 20:00 registration window opening?"
+    ],
+    "postmortem": "## Impact\n\nDuring the 20:00 registration window, the course-registration site experienced severe degradation. Students encountered request latency exceeding 30 seconds, manifested as continuous UI spinners. The `reg-web` service average latency spiked to 9,100ms, and the `reg-db` CPU utilization reached 97%. Many students reported via support chat that the site was frozen and they were unable to add courses such as CS101. No code was deployed on the day of the incident.\n\n## Timeline\n\n* **2024-12-01 19:58:11** – `reg-web` operating normally at 180 requests/s with an average latency of 210ms.\n* **2024-12-01 20:00:04** – Registration window opens; traffic surges to 2,400 requests/s.\n* **2024-12-01 20:00:22** – `reg-web` logs warning for average latency reaching 8,200ms.\n* **2024-12-01 20:00:30** – `reg-api` logs a 96% cache MISS rate on keys matching `course:capacity:*`.\n* **2024-12-01 20:00:31** – `reg-api` attempts Redis `GET course:capacity:CS101`, returning `nil` and triggering a recomputation from the database.\n* **2024-12-01 20:00:45** – `reg-api` logs database query error: `seats_remaining` took 6,100ms due to a full table scan on `enrollments`.\n* **2024-12-01 20:01:10** – `reg-db` logs CPU at 97% and records 400+ entries in the slow query log.\n* **2024-12-01 20:03:00** – `reg-web` traffic remains high at 2,100 requests/s with an average latency of 9,100ms.\n\n## Leading hypothesis\n\nThe traffic surge at the 20:00 registration window hit a completely cold Redis cache for course capacities (which had a 30s TTL). This forced thousands of concurrent requests to fall back directly to the database to compute `seats_remaining`. Because an index-less query on the `enrollments` table had been introduced 6 days prior for an admin dashboard, the cache misses triggered expensive full table scans, quickly exhausting database CPU (97%) and creating a compounding latency bottleneck across the entire application stack.\n\n## Contributing factors\n\n* **Cold Cache at Traffic Spike:** Course capacity was cached in Redis with a 30s TTL and was cold at the exact moment the registration window opened.\n* **Unindexed Database Query:** A report deployed 6 days prior added an index-less query on the `enrollments` table.\n* **High Concurrency:** Sudden traffic jump from 180 requests/s to 2,400 requests/s at 20:00.\n\n## What we still need to verify\n\n* The exact total number of concurrent database connections opened during the peak of the incident.\n* Whether the index-less admin dashboard query was actively executing concurrently with the registration queries or if its existence alone degraded query planner decisions.\n* The exact Redis memory and eviction metrics during the window open.\n\n## Follow-up actions\n\n* Add appropriate database indexes to the `enrollments` table to support the `seats_remaining` calculation and admin reports.\n* Pre-warm the Redis cache for `course:capacity:*` prior to the opening of registration windows.\n* Review and adjust Redis TTL strategies for high-contention, read-heavy registration data.\n* Implement request coalescing (single-flight) in `reg-api` to prevent simultaneous identical cache misses from flooding the database with duplicate recomputations.",
+    "devil": {
+      "counter": "The sudden spike in traffic coinciding with a 96% cache miss rate and known index-less queries creates a deceptively neat narrative, but treating this as a pure capacity/caching failure ignores the distinct possibility that the traffic pattern itself is weaponized or structurally flawed beyond normal concurrency.",
+      "points": [
+        "Attributing the full table scan strictly to a 'cold cache' ignores the fact that a 30s TTL means this cache expires naturally every 30 seconds under normal load; if it only collapses now, the traffic volume or payload structure must be fundamentally different, not just absent from cache.",
+        "The admin dashboard change from 6 days ago introduced an index-less query, yet no performance issues were reported during peak hours over the previous five days, suggesting this query may be triggered by a specific malformed request pattern rather than standard registration flows.",
+        "A 13x traffic multiplier in four seconds (180 to 2400 req/s) strongly indicates a coordinated botnet, script-kiddie automation, or refresh-spamming cascade rather than organic student behavior, meaning database tuning will fail to solve the underlying application-level DDoS effect."
+      ],
+      "blindspot": "By committing instantly to the database exhaustion hypothesis, we completely ignore application-level bottlenecks like connection pool starvation, thread-lock contention in the backend API, or upstream rate-limiting failures that would persist even if the database had infinite CPU."
+    },
+    "grounding": {
+      "audit": [
+        {
+          "claim": "Traffic increased from 180 requests/s before the registration window to 2400 requests/s when the registration window opened.",
+          "verdict": "supported",
+          "note": "Supported by logs at 19:58:11 (requests/s=180) and 20:00:04 (requests/s=2400)."
+        },
+        {
+          "claim": "The cache had a 96% MISS rate on the key course:capacity:* at 20:00:30.",
+          "verdict": "supported",
+          "note": "Supported by log entry at 20:00:30."
+        },
+        {
+          "claim": "A database query for seats_remaining took 6100ms due to a full table scan on enrollments.",
+          "verdict": "supported",
+          "note": "Supported by log entry at 20:00:45."
+        },
+        {
+          "claim": "Database CPU reached 97% with over 400 entries in the slow query log.",
+          "verdict": "supported",
+          "note": "Supported by log entry at 20:01:10."
+        },
+        {
+          "claim": "No deployments occurred today, and no deploy happened in the last 5 days.",
+          "verdict": "supported",
+          "note": "Supported by incident description (\"No deploy happened today\") and deployment notes (\"No deploy in the last 5 days\")."
+        },
+        {
+          "claim": "Course capacity is cached in Redis with a 30s TTL, and the cache is cold at window open.",
+          "verdict": "supported",
+          "note": "Supported by deployment notes under Caching."
+        },
+        {
+          "claim": "During the 20:00 registration window opening, traffic surged to 2400 requests per second, causing average latency to spike up to 9100ms and database CPU to reach 97%. The reg-api experienced a 96% cache miss rate on course capacity keys because the cache was cold, triggering expensive fallback database queries with full table scans on the enrollments table. No deployments occurred today, but a report added an index-less query on enrollments six days prior.",
+          "verdict": "supported",
+          "note": "All individual components and causal claims are directly corroborated by the logs, deployment notes, and description."
+        }
+      ]
+    }
+  }
+};
+
+/* ============================================================
+   IncidentIQ — client logic
+   Model: Google Gemini (generateContent REST API)
+   Staged, grounded prompts. No claim without a source.
+   ============================================================ */
+
+/* Model used for live analysis. 3.6 Flash was removed because it can return
+   high-demand 503 errors for API-key users in this project workflow. */
+const MODELS = {
+  "gemini-3.5-flash-lite": { label:"Gemini 3.5 Flash-Lite", maxOut:8192 }
+};
+let MODEL   = "gemini-3.5-flash-lite";
+let API_KEY = "";      // in-memory only, never persisted
+let STATE   = {};
+let charts  = {};
+const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+/* ---------- Sample incidents ---------- */
+const SAMPLES = {
+  checkout: {
+    title: "Checkout fails after v2.4.1",
+    desc: "Deploy of the checkout service v2.4.1 at 14:05. Around 14:12, on-call paged: customers can't complete payment; order-confirmation page 500s.",
+    logs:
+`2024-11-18 14:05:02 INFO  deploy checkout-svc image=checkout:2.4.1 replicas=6 OK
+2024-11-18 14:05:40 INFO  checkout-svc healthcheck /healthz 200 (all pods ready)
+2024-11-18 14:11:56 WARN  checkout-svc payment.finalize latency=1900ms (p95 baseline 240ms)
+2024-11-18 14:12:03 ERROR checkout-svc payment.finalize -> orders-db timeout after 2000ms
+2024-11-18 14:12:03 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)
+2024-11-18 14:12:09 ERROR orders-db too many connections (max_connections=100, active=100)
+2024-11-18 14:12:10 WARN  reporting-svc opened 74 idle connections to orders-db
+2024-11-18 14:13:20 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted)
+2024-11-18 14:15:00 INFO  autoscaler checkout-svc replicas 6 -> 10 (cpu 78%)
+2024-11-18 14:16:41 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted)`,
+    deploy:
+`Release v2.4.1 (14:05):
+- checkout-svc: raised DB connection pool per pod from 10 -> 20 to reduce p99 latency.
+- No schema changes.
+Earlier today 09:30: reporting-svc deployed a new hourly export job that connects directly to orders-db. Runs at :00 of each hour.`,
+    alerts:
+`ALERT PagerDuty 14:12 "checkout 5xx rate 41% (threshold 2%)"
+ALERT Datadog 14:12 "orders-db connections at max_connections"
+Support: 6 tickets "payment failed but card was charged?" between 14:14-14:40`
+  },
+  registration: {
+    title: "Course registration slows at peak",
+    desc: "During the 20:00 registration window, the course-registration site becomes very slow; some students see spinners for 30s+. No deploy today.",
+    logs:
+`2024-12-01 19:58:11 INFO  reg-web requests/s=180 avg=210ms
+2024-12-01 20:00:04 INFO  reg-web requests/s=2400 (registration window opened)
+2024-12-01 20:00:22 WARN  reg-web avg latency=8200ms
+2024-12-01 20:00:30 WARN  reg-api cache MISS rate 96% on key course:capacity:*
+2024-12-01 20:00:31 INFO  reg-api redis GET course:capacity:CS101 -> nil (recompute from DB)
+2024-12-01 20:00:45 ERROR reg-api db query seats_remaining took 6100ms (full table scan on enrollments)
+2024-12-01 20:01:10 WARN  reg-db CPU 97%, slow query log 400+ entries
+2024-12-01 20:03:00 INFO  reg-web requests/s=2100 avg=9100ms`,
+    deploy:
+`No deploy in the last 5 days. Last change: 6 days ago, a report added an index-less query on enrollments for an admin dashboard.
+Cache: course capacity cached in Redis with 30s TTL; cache is cold at window open.`,
+    alerts:
+`ALERT 20:00 "reg-web p95 latency > 5s"
+ALERT 20:01 "reg-db CPU > 90%"
+Support: many students on chat "site frozen", "can't add CS101"`
+  }
+};
+
+/* ---------- DOM helpers ---------- */
+const $ = s => document.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+
+/* ---------- Scenario chips ---------- */
+function renderScenarios(){
+  const box=$("#scenarios");box.innerHTML="";
+  const meta={checkout:"Deploy + hidden connection pressure",registration:"Cold cache + missing index at peak"};
+  Object.entries(SAMPLES).forEach(([k,v])=>{
+    const b=el("button","scn");
+    b.dataset.key=k;
+    b.innerHTML=`<span class="st">${esc(v.title)}</span><span class="sd">${esc(meta[k])}</span>`;
+    b.onclick=()=>{fillFrom(k);[...box.children].forEach(c=>c.classList.remove("active"));b.classList.add("active");};
+    box.appendChild(b);
+  });
+}
+function fillFrom(k){
+  const s=SAMPLES[k];
+  $("#in-desc").value=s.desc;$("#in-logs").value=s.logs;$("#in-deploy").value=s.deploy;$("#in-alerts").value=s.alerts;
+  STATE.loadedSample=k;
+}
+function activeSampleKey(){
+  const a=document.querySelector(".scn.active");
+  if(a) return a.dataset.key;
+  const logs=$("#in-logs").value.trim();
+  for(const k in SAMPLES){ if(SAMPLES[k].logs.trim()===logs) return k; }
+  return null;
+}
+
+/* ---------- Gemini API layer ---------- */
+async function callGemini(system,user,{json=false}={}){
+  if(!API_KEY) throw new Error("NO_KEY");
+  const body={
+    systemInstruction:{parts:[{text:system}]},
+    contents:[{role:"user",parts:[{text:user}]}],
+    // temperature / top_p / top_k are omitted for compatibility with current Gemini APIs.
+    generationConfig:{ maxOutputTokens: MODELS[MODEL].maxOut }
+  };
+  if(json) body.generationConfig.responseMimeType="application/json";
+
+  let res;
+  try{
+    res=await fetch(`${API_BASE}/${MODEL}:generateContent`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":API_KEY},
+      body:JSON.stringify(body)
+    });
+  }catch(netErr){
+    throw new Error("Could not reach the Gemini API. Check your internet connection, or that the key is allowed to call generativelanguage.googleapis.com.");
+  }
+  if(!res.ok){
+    let msg="";
+    try{ msg=(await res.json())?.error?.message||""; }catch(e){}
+    if(res.status===400 && /API key not valid/i.test(msg)) throw new Error("That API key was rejected. Create a fresh key in Google AI Studio and paste it again.");
+    if(res.status===403) throw new Error("Access denied (403). The key may be restricted, or the Generative Language API is not enabled for its project.");
+    if(res.status===429) throw new Error("Rate limit reached (429). The free tier allows a limited number of requests per minute — wait a moment, then try again.");
+    if(res.status===503) throw new Error("Gemini is temporarily overloaded (503). Wait a moment, then try again.");
+    if(res.status===404) throw new Error(`Model "${MODEL}" was not found for this key. Check that the key can access Gemini 3.5 Flash-Lite.`);
+    throw new Error(`Gemini API error ${res.status}. ${msg}`);
+  }
+  const data=await res.json();
+  if(data.promptFeedback?.blockReason) throw new Error("The request was blocked by a safety filter ("+data.promptFeedback.blockReason+").");
+  const cand=data.candidates?.[0];
+  const text=(cand?.content?.parts||[]).map(p=>p.text||"").join("").trim();
+  if(!text){
+    if(cand?.finishReason==="MAX_TOKENS") throw new Error("The reply hit the output limit before producing text. Shorten the logs and try again.");
+    throw new Error("The model returned an empty response. Try again, or shorten the input.");
+  }
+  return text;
+}
+function parseJSON(txt){
+  let t=txt.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const a=t.indexOf("{"), b=t.lastIndexOf("}");
+  if(a>=0&&b>a)t=t.slice(a,b+1);
+  return JSON.parse(t);
+}
+async function askJSON(system,user){
+  // responseMimeType already forces JSON; the retry is a belt-and-braces fallback.
+  const raw=await callGemini(system,user,{json:true});
+  try{ return parseJSON(raw); }
+  catch(e){
+    const raw2=await callGemini("Return ONLY valid JSON matching the requested schema. No other text.",
+      user+"\n\nYour previous reply could not be parsed as JSON. Return ONLY the JSON object.",{json:true});
+    return parseJSON(raw2);
+  }
+}
+
+/* ---------- Prompt builders ---------- */
+function inputBlock(){
+  const desc=$("#in-desc").value.trim(), logs=$("#in-logs").value.trim(),
+        dep=$("#in-deploy").value.trim(), al=$("#in-alerts").value.trim();
+  return `=== INCIDENT DESCRIPTION ===\n${desc||"(none)"}\n\n=== LOGS / TRACES ===\n${logs||"(none)"}\n\n=== DEPLOYMENT NOTES ===\n${dep||"(none)"}\n\n=== ALERTS / USER REPORTS ===\n${al||"(none)"}`;
+}
+const GUARD="You analyze a software production incident. Ground every statement in the provided input. If something is not directly in the input, label it an assumption or inference — never present a guess as a fact. Prefer several competing explanations over one. Be concise and specific.";
+
+/* ---------- Stages ---------- */
+async function stageSummary(inp){
+  return askJSON(GUARD+" Extract a short summary plus a fact/assumption ledger.",
+   `${inp}\n\nReturn JSON: {"summary":"3-4 sentence neutral summary of what is known, no speculation","facts":[{"statement":"...","evidence":"the exact log line or note that supports it"}],"assumptions":[{"statement":"belief the investigation relies on but the input does not prove","why":"why we'd assume it"}]}. Max 6 facts, 4 assumptions.`);
+}
+async function stageTimeline(inp){
+  return askJSON(GUARD+" Reconstruct a timeline. Mark each event 'observed' (a timestamp/line exists) or 'inferred'.",
+   `${inp}\n\nReturn JSON: {"timeline":[{"time":"HH:MM or relative","event":"what happened","source":"which input line/section","kind":"observed|inferred"}]}. Chronological. Max 9 events.`);
+}
+async function stageHypotheses(inp){
+  return askJSON(GUARD+" Generate competing root-cause hypotheses. Include at least one that contradicts the obvious deploy-blame story, and remember that common causes usually beat exotic ones.",
+   `${inp}\n\nReturn JSON: {"hypotheses":[{"title":"short root-cause claim","confidence":0-100,"supporting":["evidence from input"],"contradicting":["evidence against, or 'none found in input'"],"test":"one concrete check that would confirm or kill this"}]}. Exactly 3 or 4, sorted by confidence descending. Confidence must reflect real evidence strength, not neatness.`);
+}
+async function stageRisks(inp,hyps){
+  return askJSON(GUARD+" Identify cognitive biases and logical fallacies that could distort THIS investigation.",
+   `${inp}\n\nTop hypothesis under consideration: "${hyps[0]?.title||""}".\n\nReturn JSON: {"risks":[{"bias":"named bias or fallacy","where":"how it could show up here specifically","mitigation":"a concrete guard against it"}]}. 3 to 5 items. Consider anchoring on the deploy, confirmation bias, post-hoc reasoning, automation bias, availability bias, base-rate neglect.`);
+}
+async function stageActions(inp,hyps){
+  return askJSON(GUARD+" Recommend next debugging steps tied to evidence, plus open questions.",
+   `${inp}\n\nHypotheses:${hyps.map(h=>" "+h.title).join(";")}.\n\nReturn JSON: {"actions":[{"action":"specific step","link":"which hypothesis or evidence it addresses","priority":"high|med|low"}],"questions":["what the input can't yet answer"]}. 3-5 actions, 2-4 questions.`);
+}
+async function stagePostmortem(inp,role){
+  const audience={engineer:"engineers: technical, blameless, include specifics",
+    manager:"managers: impact, timeline, risk and follow-ups, minimal jargon",
+    support:"the support team: what to tell affected users, in plain language"}[role];
+  return callGemini(
+   "Write a blameless incident postmortem in Markdown for "+audience+". Use only what the input supports; mark the root cause as a leading hypothesis, not a confirmed fact. Sections: Impact, Timeline, Leading hypothesis, Contributing factors, What we still need to verify, Follow-up actions. Output Markdown only, no preamble.",
+   inp+"\n\nWrite the postmortem now.");
+}
+async function toolGrounding(inp){
+  const claims=(STATE.summary?.facts||[]).map(f=>f.statement).concat([STATE.summary?.summary||""]);
+  return askJSON("Audit an AI incident summary for claims not supported by the source input. Be skeptical; arithmetic derived from the input is 'partly' supported at best.",
+   `SOURCE INPUT:\n${inp}\n\nCLAIMS TO AUDIT:\n${claims.map((c,i)=>(i+1)+". "+c).join("\n")}\n\nReturn JSON {"audit":[{"claim":"...","verdict":"supported|partly|unsupported","note":"which line supports it, or why it's ungrounded"}]}.`);
+}
+async function toolDevil(inp){
+  const top=STATE.hypotheses?.[0];
+  return askJSON("Play devil's advocate. Argue AGAINST the leading hypothesis as hard as the evidence allows, so the team doesn't over-commit.",
+   `${inp}\n\nLEADING HYPOTHESIS: "${top?.title}".\n\nReturn JSON: {"counter":"one-sentence strongest reason this could be wrong","points":["specific objections or overlooked alternatives"],"blindspot":"what evidence we'd be ignoring if we commit now"}. 3-4 points.`);
+}
+
+/* ---------- Orchestration ---------- */
+const STEPS=[
+  {k:"summary",label:"Extract facts & summary"},
+  {k:"timeline",label:"Reconstruct timeline"},
+  {k:"hypotheses",label:"Generate hypotheses"},
+  {k:"risks",label:"Scan reasoning risks"},
+  {k:"actions",label:"Recommend actions"},
+  {k:"postmortem",label:"Draft postmortem"},
+];
+function setStep(i,status){
+  const s=document.querySelectorAll(".step")[i];if(!s)return;
+  s.classList.remove("run","done");if(status)s.classList.add(status);
+}
+function stepperHTML(){
+  return `<div class="stepper">${STEPS.map((s,i)=>`<span class="step" data-i="${i}"><span class="num">${i+1}</span>${s.label}</span>`).join("")}</div>`;
+}
+
+/* Live analysis (needs a key) */
+async function run(){
+  if(!$("#in-desc").value.trim() && !$("#in-logs").value.trim()){shake();return;}
+  if(!API_KEY){ openKeyModal(true); return; }
+
+  const btn=$("#runBtn");btn.disabled=true;btn.textContent="Analyzing…";
+  $("#empty").classList.add("hidden");
+  const R=$("#results");R.classList.remove("hidden");
+  R.innerHTML=stepperHTML()+`<div class="sk"><div class="ln" style="width:40%"></div><div class="ln" style="width:92%"></div><div class="ln" style="width:80%"></div></div><div class="sk"><div class="ln" style="width:30%"></div><div class="ln" style="width:88%"></div></div>`;
+  STATE={role:"engineer",demo:false};
+  const inp=inputBlock();
+  try{
+    setStep(0,"run"); STATE.summary=await stageSummary(inp); setStep(0,"done");
+    setStep(1,"run"); STATE.timeline=(await stageTimeline(inp)).timeline||[]; setStep(1,"done");
+    setStep(2,"run"); STATE.hypotheses=(await stageHypotheses(inp)).hypotheses||[]; setStep(2,"done");
+    setStep(3,"run"); STATE.risks=(await stageRisks(inp,STATE.hypotheses)).risks||[]; setStep(3,"done");
+    setStep(4,"run"); const a=await stageActions(inp,STATE.hypotheses); STATE.actions=a.actions||[];STATE.questions=a.questions||[]; setStep(4,"done");
+    setStep(5,"run"); STATE.postmortem=await stagePostmortem(inp,"engineer"); setStep(5,"done");
+    renderResults();
+  }catch(e){
+    const m = e.message==="NO_KEY" ? "Add a Gemini API key to run a live analysis — or load a saved run instead." : e.message;
+    R.innerHTML=`<div class="err"><b>Analysis stopped.</b> ${esc(m)}</div>`+R.innerHTML;
+  }finally{btn.disabled=false;btn.textContent="Analyze incident";}
+}
+
+/* Saved run (no key, no network) */
+function runDemo(key){
+  key = key || activeSampleKey() || "checkout";
+  fillFrom(key);
+  document.querySelectorAll(".scn").forEach(c=>c.classList.toggle("active",c.dataset.key===key));
+  const d=DEMO[key];
+  STATE={role:"engineer",demo:true,demoKey:key,
+    summary:d.summary,timeline:d.timeline,hypotheses:d.hypotheses,risks:d.risks,
+    actions:d.actions,questions:d.questions,postmortem:d.postmortem};
+  $("#empty").classList.add("hidden");
+  $("#results").classList.remove("hidden");
+  renderResults();
+}
+
+/* ---------- Rendering ---------- */
+function renderResults(){
+  const S=STATE, R=$("#results");
+  const facts=S.summary?.facts||[], asm=S.summary?.assumptions||[];
+  let html=stepperHTML().replace(/class="step"/g,'class="step done"');
+
+  if(S.demo){
+    html+=`<div class="disc" style="margin:0 0 18px"><b>◉</b><div><b>Saved run.</b> This is a stored analysis of the sample incident, shown so the tool can be reviewed without an API key. No model call was made. Add a Gemini key in the header to run a live analysis on your own data.</div></div>`;
+  }
+
+  html+=card("01","Incident summary","neutral tone, no speculation",
+    `<div class="summary paper">${esc(S.summary?.summary||"")}</div>`);
+
+  const li=(arr,map)=>arr.map(map).join("")||`<li style="color:var(--ink-faint)">—</li>`;
+  html+=card("02","Facts · Assumptions · Hypotheses · Actions","the reasoning ledger",
+   `<div class="ledger">
+    <div class="col obs"><div class="colh"><span class="dot d-obs"></span>Facts</div><ul>${li(facts,f=>`<li>${esc(f.statement)}<span class="ev">↳ ${esc(f.evidence)}</span></li>`)}</ul></div>
+    <div class="col asm"><div class="colh"><span class="dot d-asm"></span>Assumptions</div><ul>${li(asm,a=>`<li>${esc(a.statement)}<span class="ev">${esc(a.why||"")}</span></li>`)}</ul></div>
+    <div class="col hyp"><div class="colh"><span class="dot d-hyp"></span>Hypotheses</div><ul>${li(S.hypotheses||[],h=>`<li>${esc(h.title)}<span class="ev">confidence ${h.confidence}%</span></li>`)}</ul></div>
+    <div class="col act"><div class="colh"><span class="dot d-inf"></span>Actions</div><ul>${li(S.actions||[],a=>`<li>${esc(a.action)}<span class="ev">${esc(a.priority||"")}</span></li>`)}</ul></div>
+   </div>`);
+
+  const tl=(S.timeline||[]).map(t=>`<div class="tev ${t.kind==="observed"?"observed":""}">
+    <span class="chip ${t.kind==="observed"?"c-obs":"c-inf"}">${esc(t.kind||"inferred")}</span>
+    <div class="tt">${esc(t.time||"")}</div><div class="te">${esc(t.event||"")}</div>
+    <div class="ts">source: ${esc(t.source||"—")}</div></div>`).join("");
+  html+=card("03","Timeline","each event tagged by evidence strength",
+    `<div class="tl">${tl||"—"}</div><div class="chartbox"><h4>Error / warning signal over the incident window</h4><div class="chartwrap"><canvas id="tlChart"></canvas></div></div>`);
+
+  const hyps=(S.hypotheses||[]).map((h,i)=>{
+    const c=Math.max(0,Math.min(100,+h.confidence||0));
+    return `<div class="hyp-item"><div class="hyp-head">
+      <span class="rank">H${i+1}</span><span class="htitle">${esc(h.title)}</span>
+      <span class="conf"><span class="bar"><i style="width:${c}%"></i></span><span class="pct">${c}%</span></span></div>
+      <div class="hyp-body">
+        <div class="ev-col"><div class="lab for">Supports</div><ul>${(h.supporting||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>—</li>"}</ul></div>
+        <div class="ev-col"><div class="lab against">Contradicts</div><ul>${(h.contradicting||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>—</li>"}</ul></div>
+      </div>
+      <div class="htest"><b>Test</b><span>${esc(h.test||"")}</span></div></div>`;
+  }).join("");
+  html+=card("04","Root-cause hypotheses","ranked by evidence, not tidiness",
+    hyps+`<div class="tool-row" style="margin:14px 0 0"><button class="tool-btn" id="devilBtn"><span class="ti">⚖</span>Challenge the leading hypothesis</button></div><div id="devilOut"></div><div class="chartbox"><h4>Confidence comparison</h4><div class="chartwrap"><canvas id="hypChart"></canvas></div></div>`);
+
+  html+=card("05","Reasoning risks","biases & fallacies threatening this investigation",
+    (S.risks||[]).map(r=>`<div class="risk-item"><div class="rl"></div><div>
+      <h4>${esc(r.bias)}</h4><div class="rw">${esc(r.where)}</div>
+      <div class="rm"><b>Guard:</b> ${esc(r.mitigation)}</div></div></div>`).join("")||"—");
+
+  html+=card("06","Next actions & open questions","evidence-linked, not generic advice",
+    `<div class="acts">${(S.actions||[]).map(a=>`<div class="act-item">
+      <span class="prio ${(a.priority||"med").toLowerCase()}">${esc(a.priority||"med")}</span>
+      <div><div class="atxt">${esc(a.action)}</div><span class="alink">↳ ${esc(a.link||"")}</span></div></div>`).join("")}</div>
+     <div class="qs"><div class="lab">Still unknown — investigate before concluding</div><ul>${(S.questions||[]).map(q=>`<li>${esc(q)}</li>`).join("")}</ul></div>`);
+
+  html+=card("07","Grounding check","verify the AI didn't invent anything",
+    `<p style="color:var(--ink-dim);font-size:13px;margin:0 0 14px">Re-reads the summary's own claims against your raw input and flags anything unsupported. This is the "don't trust the machine" step.</p><div class="tool-row" style="margin:0"><button class="tool-btn" id="groundBtn"><span class="ti">🔎</span>Audit claims against the input</button></div><div id="groundOut"></div>`);
+
+  const roles=["engineer","manager","support"];
+  html+=card("08","Draft postmortem",
+    `<span class="roles">${roles.map(r=>`<button class="role ${r===S.role?'active':''}" data-role="${r}">${r}</button>`).join("")}</span>`,
+    `<div class="pm" id="pmBody"></div>
+     <div class="export-row"><button id="copyPm"><span>⧉</span> Copy Markdown</button><button id="dlPm"><span>↓</span> Download .md</button><button id="dlJson"><span>{ }</span> Download analysis JSON</button></div>`,true);
+
+  html+=`<div class="disc"><b>⚠</b><div>IncidentIQ produces <b>ranked hypotheses and drafts</b>, not verified conclusions. A human must confirm the leading hypothesis with the recommended tests before acting or communicating externally. AI output here can be confidently wrong.</div></div>`;
+
+  R.innerHTML=html;
+  renderPostmortem();
+  drawCharts();
+  $("#devilBtn").onclick=showDevil;
+  $("#groundBtn").onclick=showGrounding;
+  $("#copyPm").onclick=()=>{navigator.clipboard.writeText(STATE.postmortem||"");flash($("#copyPm"),"Copied");};
+  $("#dlPm").onclick=()=>download("incidentiq-postmortem.md",STATE.postmortem||"");
+  $("#dlJson").onclick=()=>download("incidentiq-analysis.json",JSON.stringify(STATE,null,2));
+  document.querySelectorAll(".role").forEach(b=>b.onclick=()=>switchRole(b.dataset.role,b));
+  R.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function card(idx,title,sub,body,subIsHTML){
+  return `<div class="card"><div class="ch"><span class="idx">${idx}</span><h3>${esc(title)}</h3>${subIsHTML?sub:`<span class="sub">${esc(sub)}</span>`}</div><div class="cb">${body}</div></div>`;
+}
+
+/* ---------- markdown -> html ---------- */
+function md(t){
+  const lines=String(t||"").split("\n");let out="",inUl=false,inOl=false;
+  const inline=s=>esc(s).replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/`(.+?)`/g,"<code>$1</code>").replace(/\*(.+?)\*/g,"<em>$1</em>");
+  const closeLists=()=>{if(inUl){out+="</ul>";inUl=false;}if(inOl){out+="</ol>";inOl=false;}};
+  for(let ln of lines){
+    if(/^###\s/.test(ln)){closeLists();out+=`<h3>${inline(ln.replace(/^###\s/,""))}</h3>`;}
+    else if(/^##\s/.test(ln)){closeLists();out+=`<h2>${inline(ln.replace(/^##\s/,""))}</h2>`;}
+    else if(/^#\s/.test(ln)){closeLists();out+=`<h1>${inline(ln.replace(/^#\s/,""))}</h1>`;}
+    else if(/^\s*[-*]\s/.test(ln)){if(!inUl){closeLists();out+="<ul>";inUl=true;}out+=`<li>${inline(ln.replace(/^\s*[-*]\s/,""))}</li>`;}
+    else if(/^\s*\d+\.\s/.test(ln)){if(!inOl){closeLists();out+="<ol>";inOl=true;}out+=`<li>${inline(ln.replace(/^\s*\d+\.\s/,""))}</li>`;}
+    else if(/^---+$/.test(ln.trim())){closeLists();out+="<hr>";}
+    else if(ln.trim()===""){closeLists();}
+    else{closeLists();out+=`<p>${inline(ln)}</p>`;}
+  }
+  closeLists();return out;
+}
+function renderPostmortem(){
+  const meta=`<div class="meta-row"><span>AUDIENCE · ${STATE.role}</span><span>STATUS · DRAFT</span><span>ROOT CAUSE · UNCONFIRMED</span>${STATE.demo?'<span>SAVED RUN</span>':''}</div>`;
+  $("#pmBody").innerHTML=meta+md(STATE.postmortem);
+}
+async function switchRole(role,btn){
+  if(role===STATE.role)return;
+  if(STATE.demo && !API_KEY){
+    document.querySelectorAll(".role").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active"); const prev=STATE.role; STATE.role=role;
+    $("#pmBody").innerHTML=`<div class="meta-row"><span>AUDIENCE · ${role}</span></div><p style="color:#5d6673">The saved run only stores the engineer-facing postmortem. Add a Gemini API key to regenerate this report for a ${esc(role)} audience.</p>`;
+    STATE.role=prev; return;
+  }
+  document.querySelectorAll(".role").forEach(b=>b.classList.remove("active"));btn.classList.add("active");
+  STATE.role=role;
+  $("#pmBody").innerHTML=`<div class="ln" style="height:14px;width:50%;border-radius:6px;background:#e6e3d9;margin-bottom:12px"></div><div class="ln" style="height:12px;width:90%;background:#e6e3d9;border-radius:6px"></div>`;
+  try{STATE.postmortem=await stagePostmortem(inputBlock(),role);}catch(e){}
+  renderPostmortem();
+}
+
+/* ---------- on-demand tools ---------- */
+async function showDevil(){
+  const b=$("#devilBtn");
+  if(STATE.demo && !API_KEY){ paintDevil(DEMO[STATE.demoKey].devil); return; }
+  b.disabled=true;b.innerHTML='<span class="ti">…</span>Arguing the other side';
+  try{ paintDevil(await toolDevil(inputBlock())); }
+  catch(e){ $("#devilOut").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+  b.disabled=false;b.innerHTML='<span class="ti">⚖</span>Challenge the leading hypothesis';
+}
+function paintDevil(d){
+  $("#devilOut").innerHTML=`<div class="card" style="margin:14px 0 0;border-color:var(--risk)"><div class="cb">
+    <blockquote class="dev-quote">${esc(d.counter||"")}</blockquote>
+    <ul class="dev-list">${(d.points||[]).map(p=>`<li>${esc(p)}</li>`).join("")}</ul>
+    <div class="rm" style="margin-top:10px;font-size:12.5px;color:var(--ink-faint)"><b style="color:var(--risk)">Blind spot:</b> ${esc(d.blindspot||"")}</div></div></div>`;
+}
+async function showGrounding(){
+  const b=$("#groundBtn");
+  if(STATE.demo && !API_KEY){ paintGrounding(DEMO[STATE.demoKey].grounding); return; }
+  b.disabled=true;b.innerHTML='<span class="ti">…</span>Auditing';
+  try{ paintGrounding(await toolGrounding(inputBlock())); }
+  catch(e){ $("#groundOut").innerHTML=`<div class="err">${esc(e.message)}</div>`; }
+  b.disabled=false;b.innerHTML='<span class="ti">🔎</span>Audit claims against the input';
+}
+function paintGrounding(g){
+  const map={supported:["c-obs","supported by input"],partly:["c-inf","only partly supported"],unsupported:["c-risk","not found in input"]};
+  $("#groundOut").innerHTML=`<div style="margin-top:14px">${(g.audit||[]).map(a=>{
+    const m=map[(a.verdict||"").toLowerCase()]||["c-asm",a.verdict];
+    return `<div class="audit-item"><div class="claim">${esc(a.claim)}</div>
+      <div class="verdict"><span class="chip ${m[0]}">${esc(a.verdict||"")}</span> ${esc(m[1])}</div>
+      <div class="note">${esc(a.note||"")}</div></div>`;}).join("")}</div>`;
+}
+
+/* ---------- charts ---------- */
+function drawCharts(){
+  // Chart.js loads from a CDN. If it is unavailable, hide the chart panels rather than
+  // throwing -- everything after this call, including the devil's-advocate and grounding
+  // buttons, depends on this returning cleanly.
+  if(typeof Chart==="undefined"){
+    document.querySelectorAll(".chartbox").forEach(b=>b.style.display="none");
+    return;
+  }
+  Object.values(charts).forEach(c=>{try{c.destroy();}catch(e){}});charts={};
+  const grid="rgba(255,255,255,.06)", tick="#6c7d95";
+  const tl=STATE.timeline||[];
+  const labels=tl.map(t=>t.time||"");
+  const sev=tl.map(t=>{const s=(t.event||"").toLowerCase();
+    return /error|500|timeout|exhaust|max_connections|97%|fail|saturat/.test(s)?3:/warn|latency|slow|miss|climb|rose/.test(s)?2:1;});
+  const c1=$("#tlChart");
+  if(c1&&labels.length){charts.tl=new Chart(c1,{type:"line",data:{labels,datasets:[{data:sev,borderColor:"#4c8dd8",backgroundColor:"rgba(76,141,216,.15)",fill:true,tension:.3,pointBackgroundColor:sev.map(v=>v===3?"#e0666b":v===2?"#e0a63c":"#2db9a6"),pointRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>["","info","warning","error"][c.raw]||""}}},
+      scales:{y:{min:0,max:3.4,ticks:{stepSize:1,color:tick,callback:v=>["","info","warn","error"][v]||""},grid:{color:grid}},x:{ticks:{color:tick,maxRotation:0},grid:{color:grid}}}}});}
+  const hy=STATE.hypotheses||[];
+  const c2=$("#hypChart");
+  if(c2&&hy.length){charts.hy=new Chart(c2,{type:"bar",data:{labels:hy.map((h,i)=>"H"+(i+1)),datasets:[{data:hy.map(h=>+h.confidence||0),backgroundColor:hy.map((h,i)=>i===0?"#4c8dd8":"#2f4a6b"),borderRadius:6,barThickness:34}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",plugins:{legend:{display:false},tooltip:{callbacks:{title:c=>hy[c[0].dataIndex].title,label:c=>c.raw+"% confidence"}}},
+      scales:{x:{min:0,max:100,ticks:{color:tick,callback:v=>v+"%"},grid:{color:grid}},y:{ticks:{color:"#e8edf5"},grid:{display:false}}}}});}
+}
+
+/* ---------- utilities ---------- */
+function download(name,txt){const b=new Blob([txt],{type:"text/plain"});const u=URL.createObjectURL(b);
+  const a=document.createElement("a");a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);}
+function flash(btn,msg){const o=btn.innerHTML;btn.innerHTML="<span>✓</span> "+msg;setTimeout(()=>btn.innerHTML=o,1400);}
+function shake(){const t=$("#in-desc");t.style.borderColor="var(--risk)";t.focus();setTimeout(()=>t.style.borderColor="",900);}
+
+/* ---------- file upload ---------- */
+function wireUpload(){
+  const inp=$("#fileInput");
+  inp.onchange=async ()=>{
+    const files=[...inp.files];if(!files.length)return;
+    for(const f of files){
+      if(f.size>1_000_000){ $("#upNote").textContent=`${f.name} is larger than 1 MB — paste an excerpt instead.`; continue; }
+      const text=await f.text();
+      const n=f.name.toLowerCase();
+      const target = /deploy|release|change/.test(n) ? "#in-deploy"
+                   : /alert|ticket|support|complaint/.test(n) ? "#in-alerts"
+                   : /desc|summary|incident/.test(n) ? "#in-desc"
+                   : "#in-logs";
+      const box=$(target);
+      box.value = box.value.trim() ? box.value.trim()+"\n"+text.trim() : text.trim();
+      $("#upNote").textContent=`Loaded ${f.name} into ${target.replace("#in-","")}.`;
+    }
+    inp.value="";
+  };
+}
+
+/* ---------- key modal ---------- */
+function openKeyModal(prompted){
+  $("#keyInput").value=API_KEY;
+  $("#keyPrompt").classList.toggle("hidden",!prompted);
+  $("#keyModal").classList.remove("hidden");
+}
+function refreshKeyBtn(){
+  const lbl=$("#keyLabel"),btn=$("#keyBtn");
+  if(API_KEY){lbl.textContent=MODELS[MODEL].label;btn.classList.add("ok");}
+  else{lbl.textContent="Demo mode — no key";btn.classList.remove("ok");}
+}
+
+/* ---------- boot ---------- */
+$("#runBtn").onclick=run;
+$("#demoBtn").onclick=()=>runDemo();
+$("#keyBtn").onclick=()=>openKeyModal(false);
+$("#keyCancel").onclick=()=>$("#keyModal").classList.add("hidden");
+$("#keySave").onclick=()=>{
+  API_KEY=$("#keyInput").value.trim();
+  $("#keyModal").classList.add("hidden");
+  refreshKeyBtn();
+};
+$("#clearBtn").onclick=()=>{["#in-desc","#in-logs","#in-deploy","#in-alerts"].forEach(s=>$(s).value="");
+  document.querySelectorAll(".scn").forEach(c=>c.classList.remove("active"));$("#upNote").textContent="";};
+renderScenarios();
+wireUpload();
+refreshKeyBtn();
+
+</script>
+</body>
+</html>

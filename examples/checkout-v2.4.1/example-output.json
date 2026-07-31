@@ -1,0 +1,274 @@
+{
+  "_note": "Example output produced by IncidentIQ from the input files in this same folder (examples/checkout-v2.4.1). Model output is not deterministic; a fresh run may differ in wording and confidence values.",
+  "summary": {
+    "summary": "Checkout service v2.4.1 was deployed at 14:05 and passed health checks. Roughly seven minutes later, at 14:12, payment finalisation began timing out and POST /api/checkout started returning 500s, with the service reporting its database connection pool exhausted at 20/20. At the same moment orders-db reported reaching its ceiling of max_connections=100, while an unrelated reporting service held 74 idle connections to the same database. Errors continued past 14:16, after autoscaling raised checkout from 6 to 10 replicas.",
+    "facts": [
+      {
+        "statement": "checkout-svc v2.4.1 deployed at 14:05:02 with 6 replicas and all pods passed health checks by 14:05:40.",
+        "evidence": "14:05:02 deploy checkout-svc image=checkout:2.4.1 replicas=6 OK / 14:05:40 healthcheck /healthz 200"
+      },
+      {
+        "statement": "The first checkout 500 errors appear at 14:12:03, about seven minutes after the deploy completed.",
+        "evidence": "14:12:03 ERROR checkout-svc POST /api/checkout 500 (orders-db pool exhausted: 20/20 in use)"
+      },
+      {
+        "statement": "orders-db reached its configured ceiling of 100 active connections at 14:12:09.",
+        "evidence": "14:12:09 ERROR orders-db too many connections (max_connections=100, active=100)"
+      },
+      {
+        "statement": "reporting-svc held 74 idle connections to orders-db at 14:12:10.",
+        "evidence": "14:12:10 WARN reporting-svc opened 74 idle connections to orders-db"
+      },
+      {
+        "statement": "Release v2.4.1 raised the checkout connection pool from 10 to 20 per pod and contained no schema changes.",
+        "evidence": "Deployment notes: raised DB connection pool per pod from 10 -> 20; No schema changes."
+      },
+      {
+        "statement": "The autoscaler increased checkout from 6 to 10 replicas at 14:15, and errors continued at 14:16:41.",
+        "evidence": "14:15:00 autoscaler replicas 6 -> 10 (cpu 78%) / 14:16:41 ERROR ... pool exhausted"
+      }
+    ],
+    "assumptions": [
+      {
+        "statement": "All six checkout pods were requesting close to their full pool of 20 connections.",
+        "why": "Only one pod's exhaustion is logged; the input never states per-pod connection counts, so the 6x20=120 figure is inferred, not measured."
+      },
+      {
+        "statement": "The reporting-svc export job began its run at 14:00.",
+        "why": "The deployment note says it runs at :00 of each hour, but the only evidence of connections is a single line at 14:12:10."
+      },
+      {
+        "statement": "checkout-svc and reporting-svc are the main consumers of orders-db.",
+        "why": "The input does not enumerate every service connecting to this database, so other consumers may exist."
+      },
+      {
+        "statement": "Customers reporting a charge without confirmation were actually charged.",
+        "why": "Six support tickets describe this, but no payment-provider record appears in the input to confirm it."
+      }
+    ]
+  },
+  "timeline": [
+    {
+      "time": "14:05:02",
+      "event": "checkout-svc v2.4.1 deployed, 6 replicas, pool raised 10 -> 20 per pod.",
+      "source": "deploy log + deployment notes",
+      "kind": "observed"
+    },
+    {
+      "time": "14:05:40",
+      "event": "All checkout pods report healthy; no errors yet.",
+      "source": "healthcheck log line",
+      "kind": "observed"
+    },
+    {
+      "time": "~14:00",
+      "event": "reporting-svc hourly export job likely began its scheduled run.",
+      "source": "inferred from deployment note 'runs at :00 of each hour'",
+      "kind": "inferred"
+    },
+    {
+      "time": "14:11:56",
+      "event": "payment.finalize latency climbs to 1900ms against a 240ms p95 baseline.",
+      "source": "WARN checkout-svc payment.finalize latency",
+      "kind": "observed"
+    },
+    {
+      "time": "14:12:03",
+      "event": "First timeouts and 500s; checkout pool exhausted at 20/20.",
+      "source": "ERROR payment.finalize -> orders-db timeout / POST 500",
+      "kind": "observed"
+    },
+    {
+      "time": "14:12:09",
+      "event": "orders-db hits max_connections=100 with 100 active.",
+      "source": "ERROR orders-db too many connections",
+      "kind": "observed"
+    },
+    {
+      "time": "14:12:10",
+      "event": "reporting-svc observed holding 74 idle connections to the same database.",
+      "source": "WARN reporting-svc opened 74 idle connections",
+      "kind": "observed"
+    },
+    {
+      "time": "14:14-14:40",
+      "event": "Six support tickets report payment failed but card possibly charged.",
+      "source": "support ticket summary",
+      "kind": "observed"
+    },
+    {
+      "time": "14:15:00",
+      "event": "Autoscaler raises checkout 6 -> 10 replicas, increasing potential connection demand.",
+      "source": "autoscaler log line",
+      "kind": "observed"
+    },
+    {
+      "time": "14:16:41",
+      "event": "Checkout still returning 500s with pool exhausted after scaling.",
+      "source": "ERROR POST /api/checkout 500",
+      "kind": "observed"
+    }
+  ],
+  "hypotheses": [
+    {
+      "title": "Combined connection demand exceeded the shared orders-db ceiling of 100",
+      "confidence": 72,
+      "supporting": [
+        "orders-db explicitly reports max_connections=100 with active=100 at 14:12:09",
+        "checkout alone could request 6 pods x 20 = 120 connections after v2.4.1, already above the ceiling",
+        "reporting-svc simultaneously held 74 idle connections to the same database",
+        "Failures are connection timeouts and pool exhaustion, not application exceptions"
+      ],
+      "contradicting": [
+        "Only one pod's pool exhaustion is logged; actual per-service connection counts are not in the input",
+        "The seven-minute gap between deploy and first error is unexplained by this hypothesis alone"
+      ],
+      "test": "Query pg_stat_activity grouped by application_name during a reproduction and compare the real per-service totals against 100."
+    },
+    {
+      "title": "The reporting-svc hourly export is the dominant consumer of the connection budget",
+      "confidence": 55,
+      "supporting": [
+        "74 of the 100 available connections were held by reporting-svc",
+        "The job was deployed only today at 09:30, making it a recent change to the shared database",
+        "Idle connections consume the ceiling without doing useful work"
+      ],
+      "contradicting": [
+        "If the job runs hourly at :00, the 12:00 and 13:00 runs presumably did not cause an incident — though the input contains no evidence either way",
+        "Errors began at 14:12, not at 14:00 when the job would have started"
+      ],
+      "test": "Check connection counts during the 12:00 and 13:00 export runs; if they also approached the ceiling, the deploy is what pushed it over."
+    },
+    {
+      "title": "Autoscaling amplified an already-saturated connection pool",
+      "confidence": 38,
+      "supporting": [
+        "Replicas rose from 6 to 10 at 14:15, raising potential demand to 200 connections",
+        "Errors persist at 14:16:41, after scaling completed"
+      ],
+      "contradicting": [
+        "The first errors at 14:12:03 predate the scaling event at 14:15:00, so this cannot be the initial cause",
+        "At best this is an amplifier, not a root cause"
+      ],
+      "test": "Cap replicas or lower the per-pod pool and observe whether the error rate falls while load stays constant."
+    },
+    {
+      "title": "A code defect in v2.4.1 unrelated to connection handling",
+      "confidence": 15,
+      "supporting": [
+        "Errors began after the v2.4.1 deploy and not before"
+      ],
+      "contradicting": [
+        "Every error message names connection timeouts or pool exhaustion, not an application fault",
+        "All pods passed health checks at 14:05:40",
+        "The deployment notes record no schema or logic changes beyond the pool size"
+      ],
+      "test": "Deploy v2.4.1 to staging against a dedicated database with a generous connection limit and run a load test."
+    }
+  ],
+  "risks": [
+    {
+      "bias": "Post-hoc fallacy",
+      "where": "The deploy at 14:05 preceded the errors at 14:12, which makes it tempting to conclude the deploy caused them. The limit actually hit is a shared database ceiling that the deploy only contributed to.",
+      "mitigation": "Require a stated mechanism connecting cause to effect, not just chronological order, before accepting any hypothesis."
+    },
+    {
+      "bias": "Anchoring bias",
+      "where": "The PagerDuty alert names checkout, so attention anchors on the checkout service and its recent release rather than on the shared database.",
+      "mitigation": "Enumerate every consumer of orders-db before naming a cause; the alert names the victim, not necessarily the culprit."
+    },
+    {
+      "bias": "Base-rate neglect",
+      "where": "A novel bug in v2.4.1 feels like a satisfying explanation, but shared-resource exhaustion is a far more common production failure mode.",
+      "mitigation": "Rank ordinary causes such as connection limits, disk, and memory before exotic ones, and require stronger evidence for the exotic."
+    },
+    {
+      "bias": "Confirmation bias",
+      "where": "Once the pool-exhaustion story is favoured, the reporting-svc line reads as confirmation while the unexplained seven-minute delay gets ignored.",
+      "mitigation": "Actively search for evidence that would disprove the leading hypothesis, and record it in the contradicting column."
+    },
+    {
+      "bias": "Automation bias",
+      "where": "This analysis is machine-generated and reads with more authority than its evidence supports; several figures here are inferred rather than measured.",
+      "mitigation": "Treat every number not traceable to a log line as an assumption, and confirm it before acting."
+    }
+  ],
+  "actions": [
+    {
+      "action": "Query pg_stat_activity grouped by application_name to obtain real per-service connection counts.",
+      "link": "Tests H1 and H2; replaces the inferred 6x20 figure with measured data",
+      "priority": "high"
+    },
+    {
+      "action": "Temporarily pause the reporting-svc hourly export and observe the checkout error rate under the same traffic.",
+      "link": "Directly falsifiable test for H2",
+      "priority": "high"
+    },
+    {
+      "action": "Roll the checkout pool back to 10 per pod, or cap replicas, and watch the connection ceiling.",
+      "link": "Tests H1 and H3 without a full rollback of v2.4.1",
+      "priority": "high"
+    },
+    {
+      "action": "Reconcile payment-provider captures against the orders table for 14:12-14:40 to find customers charged without an order.",
+      "link": "Addresses the six support tickets; customer-impacting regardless of root cause",
+      "priority": "med"
+    },
+    {
+      "action": "Add an alert on orders-db connection utilisation with a threshold below 100 so the ceiling is visible before it is reached.",
+      "link": "Prevents recurrence; the incident surfaced only once the limit was already hit",
+      "priority": "low"
+    }
+  ],
+  "questions": [
+    "What were the actual per-service connection counts at 14:12? The input gives a figure only for reporting-svc.",
+    "Did the 12:00 and 13:00 export runs also elevate connection counts without causing a visible incident?",
+    "What is the sum of all configured connection pools across every service pointing at orders-db?",
+    "Were payments captured for the checkouts that returned 500, and how many customers are affected?",
+    "Why did errors begin at 14:12 rather than immediately after the 14:05 deploy?"
+  ],
+  "devil": {
+    "counter": "The seven-minute gap between a completed deploy and the first error is the weakest point in the leading hypothesis, and nothing in the evidence explains it.",
+    "points": [
+      "If 6 pods x 20 connections truly exceeded the ceiling on their own, saturation should have appeared within seconds of the pods becoming ready at 14:05:40, not seven minutes later.",
+      "The 74 idle connections from reporting-svc are recorded at 14:12:10 — one second after the ceiling was already reported. That ordering is consistent with reporting-svc being a symptom of a stalled database rather than the cause of the saturation.",
+      "No baseline is available. We do not know what normal connection usage looks like, so we cannot say the observed numbers are abnormal rather than typical for this hour.",
+      "A traffic spike at 14:12 driven by something entirely outside this data — a marketing send, a bot, a retry storm from an upstream client — would produce exactly these symptoms with or without the deploy."
+    ],
+    "blindspot": "Committing now means treating the deploy and the reporting job as the whole story, and never checking whether an external traffic change at 14:12 was the actual trigger. The absence of request-rate data in the input is the largest gap in this investigation."
+  },
+  "grounding": {
+    "audit": [
+      {
+        "claim": "checkout-svc v2.4.1 deployed at 14:05:02 with 6 replicas and all pods passed health checks by 14:05:40.",
+        "verdict": "supported",
+        "note": "Both the deploy line and the healthcheck line appear verbatim in the logs."
+      },
+      {
+        "claim": "orders-db reached its configured ceiling of 100 active connections at 14:12:09.",
+        "verdict": "supported",
+        "note": "Matches 'orders-db too many connections (max_connections=100, active=100)'."
+      },
+      {
+        "claim": "reporting-svc held 74 idle connections to orders-db at 14:12:10.",
+        "verdict": "supported",
+        "note": "Stated directly in the WARN line at that timestamp."
+      },
+      {
+        "claim": "Checkout alone could request 6 pods x 20 = 120 connections after v2.4.1.",
+        "verdict": "partly",
+        "note": "The pool size of 20 and the replica count of 6 are both in the input, but no line shows all pods holding full pools. The product is arithmetic, not evidence."
+      },
+      {
+        "claim": "Errors continued past 14:16 after autoscaling raised checkout to 10 replicas.",
+        "verdict": "supported",
+        "note": "Autoscaler line at 14:15:00 and an error line at 14:16:41 both appear."
+      },
+      {
+        "claim": "Customers were charged without receiving an order confirmation.",
+        "verdict": "unsupported",
+        "note": "The support tickets ask whether this happened; no payment or order record in the input confirms it. This should be an open question, not a finding."
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+# Never commit secrets
+.env
+*.key
+api-key*.txt
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Build artifacts
+node_modules/

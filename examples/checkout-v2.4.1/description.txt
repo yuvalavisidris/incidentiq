@@ -1,0 +1,2 @@
+Deploy of the checkout service v2.4.1 at 14:05. Around 14:12, on-call was paged:
+customers can't complete payment; the order-confirmation page returns 500 errors.
