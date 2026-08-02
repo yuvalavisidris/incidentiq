@@ -17,7 +17,7 @@ actions visibly separate** and never claims a verified root cause.
 
 ## Submission links
 
-- **Demo video URL:** TODO - add the unlisted YouTube or shared Drive link before submission.
+- **Demo video URL: https://drive.google.com/file/d/1rbpqdvLSWR67wCVVJlEx7JaQdtpLtTqI/view?usp=sharing
 - **GitHub repository URL: https://github.com/yuvalavisidris/incidentiq
 ---
 
